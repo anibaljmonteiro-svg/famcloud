@@ -20,147 +20,144 @@
 ═══════════════════════════════════════════════════════ */
 
 /* ── 1. FAMCLOUD (default — clean professional blue) ── */
+/* ═══════════════════════════════════════════════════════
+   THEMES — 7 identidades visuais distintas (v9)
+   Cada tema: background radial mesh, tipografia própria, shadows únicos
+═══════════════════════════════════════════════════════ */
+
+/* ── 1. FAMCLOUD — Índigo mesh, moderno e limpo ── */
 [data-theme="terra"] {
-  --bg: #f0f4f8; --bg2: #e2eaf3; --bg3: #ccd8e8;
-  --primary: #2563eb; --primary2: #1d4ed8; --primary-text: #fff;
-  --text: #0f172a; --text2: #475569; --text3: #94a3b8;
-  --border: #dde6f0; --card: rgba(255,255,255,0.92);
-  --green: #16a34a; --red: #dc2626; --blue: #2563eb;
-  --gradient: linear-gradient(135deg,#2563eb,#1d4ed8);
-  --gradient-bg: linear-gradient(160deg,#dbeafe 0%,#eff6ff 40%,#f0f4f8 100%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%232563eb' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-  --font: 'Inter', 'DM Sans', sans-serif; --font-heading: 'Inter', sans-serif;
-  --radius: 14px; --radius-lg: 20px;
-  --shadow: 0 1px 4px rgba(37,99,235,.06), 0 4px 16px rgba(37,99,235,.08);
-  --shadow-hover: 0 8px 32px rgba(37,99,235,.18), 0 2px 8px rgba(0,0,0,.06);
-  --shadow-card: 0 0 0 1px rgba(37,99,235,.08), 0 4px 20px rgba(37,99,235,.1);
-  --topbar-bg: rgba(255,255,255,0.85); --topbar-blur: blur(24px) saturate(180%);
-  --topbar-border: rgba(37,99,235,.12);
-  --sidebar-bg: rgba(255,255,255,0.75);
-}
-
-/* ── 2. DARK PRO (Telegram/Linear-inspired dark) ── */
-[data-theme="dark"] {
-  --bg: #13141a; --bg2: #1e2030; --bg3: #282d42;
-  --primary: #818cf8; --primary2: #6366f1; --primary-text: #fff;
-  --text: #e2e8f0; --text2: #8892a4; --text3: #4a5568;
-  --border: rgba(129,140,248,.12); --card: rgba(30,32,48,0.9);
-  --green: #34d399; --red: #f87171; --blue: #60a5fa;
-  --gradient: linear-gradient(135deg,#818cf8,#6366f1);
-  --gradient-bg: linear-gradient(160deg,#0f0f1a 0%,#13141a 50%,#0c0e18 100%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23818cf8' fill-opacity='0.04'%3E%3Crect x='0' y='0' width='1' height='40'/%3E%3Crect x='0' y='0' width='40' height='1'/%3E%3C/g%3E%3C/svg%3E");
-  --font: 'Inter', sans-serif; --font-heading: 'Inter', sans-serif;
-  --radius: 12px; --radius-lg: 18px;
-  --shadow: 0 2px 12px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.2);
-  --shadow-hover: 0 8px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(129,140,248,.2);
-  --shadow-card: 0 0 0 1px rgba(129,140,248,.1), 0 4px 24px rgba(0,0,0,.4);
-  --topbar-bg: rgba(19,20,26,0.88); --topbar-blur: blur(24px) saturate(180%);
-  --topbar-border: rgba(129,140,248,.1);
-  --sidebar-bg: rgba(19,20,26,0.9);
-}
-
-/* ── 3. OCEAN (Dropbox-inspired clean blue) ── */
-[data-theme="ocean"] {
-  --bg: #ffffff; --bg2: #f5f8ff; --bg3: #e8f0fe;
-  --primary: #0061ff; --primary2: #0052d6; --primary-text: #fff;
-  --text: #1a1b1f; --text2: #5f6368; --text3: #9aa0a6;
-  --border: #e8eaed; --card: #ffffff;
-  --green: #00b894; --red: #d32f2f; --blue: #0061ff;
-  --gradient: linear-gradient(135deg,#0061ff,#0052d6);
-  --gradient-bg: linear-gradient(160deg,#f5f8ff 0%,#ffffff 60%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none'%3E%3Ccircle cx='40' cy='40' r='1' fill='%230061ff' fill-opacity='0.05'/%3E%3C/g%3E%3C/svg%3E");
-  --font: 'Inter', sans-serif; --font-heading: 'Inter', sans-serif;
-  --radius: 8px; --radius-lg: 16px;
-  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 2px 8px rgba(0,97,255,.06);
-  --shadow-hover: 0 4px 20px rgba(0,97,255,.15), 0 1px 4px rgba(0,0,0,.08);
-  --shadow-card: 0 0 0 1px #e8eaed, 0 2px 12px rgba(0,0,0,.06);
-  --topbar-bg: rgba(255,255,255,0.96); --topbar-blur: blur(20px);
-  --topbar-border: #e8eaed;
-  --sidebar-bg: #f5f8ff;
-}
-
-/* ── 4. WHATSAPP (WhatsApp-style deep teal + warm chat bg) ── */
-[data-theme="forest"] {
-  --bg: #eae6df; --bg2: #ddd9d0; --bg3: #ccc8be;
-  --primary: #075e54; --primary2: #128c7e; --primary-text: #fff;
-  --text: #111b21; --text2: #54656f; --text3: #8696a0;
-  --border: #d1d7db; --card: #ffffff;
-  --green: #25d366; --red: #ea0038; --blue: #34b7f1;
-  --gradient: linear-gradient(135deg,#075e54,#128c7e);
-  --gradient-bg: linear-gradient(160deg,#eae6df 0%,#f0ece5 100%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='304' height='304' viewBox='0 0 304 304' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M44 0h2v304H44zm56 0h2v304h-2zm56 0h2v304h-2zm56 0h2v304h-2zm56 0h2v304h-2zM0 44v2h304v-2zm0 56v2h304v-2zm0 56v2h304v-2zm0 56v2h304v-2zm0 56v2h304v-2z' fill='%23075e54' fill-opacity='0.04'/%3E%3C/svg%3E");
-  --font: 'Inter', sans-serif; --font-heading: 'Inter', sans-serif;
-  --radius: 10px; --radius-lg: 18px;
-  --shadow: 0 1px 1px rgba(11,20,26,.1), 0 2px 8px rgba(11,20,26,.06);
-  --shadow-hover: 0 4px 16px rgba(7,94,84,.2), 0 1px 4px rgba(0,0,0,.1);
-  --shadow-card: 0 1px 1px rgba(11,20,26,.06), 0 2px 16px rgba(11,20,26,.08);
-  --topbar-bg: #075e54; --topbar-blur: none;
-  --topbar-border: rgba(0,0,0,.08);
-  --topbar-text: #fff;
-  --sidebar-bg: #f0ece5;
-}
-
-/* ── 5. AMOLED (pure black OLED, vivid accents) ── */
-[data-theme="candy"] {
-  --bg: #000000; --bg2: #0d0d0d; --bg3: #1a1a1a;
-  --primary: #ff6b6b; --primary2: #ee5a24; --primary-text: #fff;
-  --text: #ffffff; --text2: #a0a0a0; --text3: #505050;
-  --border: rgba(255,255,255,.08); --card: rgba(15,15,15,0.95);
-  --green: #26de81; --red: #ff6b6b; --blue: #45aaf2;
-  --gradient: linear-gradient(135deg,#ff6b6b,#ee5a24);
-  --gradient-bg: linear-gradient(160deg,#000 0%,#0a0a0a 100%);
-  --bg-pattern: none;
-  --font: 'Inter', sans-serif; --font-heading: 'Inter', sans-serif;
+  --bg: #f3f4ff; --bg2: #e8eaff; --bg3: #d4d8ff;
+  --primary: #4f46e5; --primary2: #4338ca; --primary-text: #fff;
+  --text: #0f0e2e; --text2: #4a4a7a; --text3: #8888aa;
+  --border: #dde0ff; --card: rgba(255,255,255,0.9);
+  --green: #059669; --red: #dc2626; --blue: #4f46e5;
+  --gradient: linear-gradient(135deg,#4f46e5,#7c3aed);
+  --gradient-bg: radial-gradient(ellipse at 15% 15%,#c7d2fe 0%,transparent 55%),radial-gradient(ellipse at 85% 85%,#ddd6fe 0%,transparent 55%),linear-gradient(160deg,#f3f4ff 0%,#ede9fe 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2210%22%20r%3D%221.2%22%20fill%3D%22%25234f46e5%22%20fill-opacity%3D%220.06%22%2F%3E%3Ccircle%20cx%3D%220%22%20cy%3D%220%22%20r%3D%220.8%22%20fill%3D%22%25234f46e5%22%20fill-opacity%3D%220.04%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%220%22%20r%3D%220.8%22%20fill%3D%22%25234f46e5%22%20fill-opacity%3D%220.04%22%2F%3E%3Ccircle%20cx%3D%220%22%20cy%3D%2220%22%20r%3D%220.8%22%20fill%3D%22%25234f46e5%22%20fill-opacity%3D%220.04%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%220.8%22%20fill%3D%22%25234f46e5%22%20fill-opacity%3D%220.04%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'DM Sans','Inter',sans-serif; --font-heading: 'DM Sans',sans-serif;
   --radius: 16px; --radius-lg: 24px;
-  --shadow: 0 0 0 1px rgba(255,255,255,.05), 0 4px 16px rgba(0,0,0,.6);
-  --shadow-hover: 0 0 0 1px rgba(255,107,107,.3), 0 8px 32px rgba(255,107,107,.2);
-  --shadow-card: 0 0 0 1px rgba(255,255,255,.06), 0 4px 20px rgba(0,0,0,.5);
-  --topbar-bg: rgba(0,0,0,0.92); --topbar-blur: blur(20px);
-  --topbar-border: rgba(255,255,255,.06);
-  --sidebar-bg: rgba(5,5,5,0.95);
+  --shadow: 0 1px 3px rgba(79,70,229,.08),0 4px 16px rgba(79,70,229,.1);
+  --shadow-hover: 0 8px 32px rgba(79,70,229,.22),0 2px 8px rgba(0,0,0,.05);
+  --shadow-card: 0 0 0 1px rgba(79,70,229,.1),0 4px 20px rgba(79,70,229,.12);
+  --topbar-bg: rgba(248,248,255,0.88); --topbar-blur: blur(28px) saturate(200%);
+  --topbar-border: rgba(79,70,229,.1); --sidebar-bg: rgba(243,244,255,0.92);
 }
 
-/* ── 6. MIDNIGHT (iCloud / Apple-inspired) ── */
+/* ── 2. OBSIDIAN — Dark premium com violeta profundo ── */
+[data-theme="dark"] {
+  --bg: #0e0e12; --bg2: #17171e; --bg3: #22222c;
+  --primary: #a78bfa; --primary2: #8b5cf6; --primary-text: #fff;
+  --text: #e8e8f0; --text2: #7878a0; --text3: #44445a;
+  --border: rgba(167,139,250,.1); --card: rgba(23,23,30,0.92);
+  --green: #34d399; --red: #f87171; --blue: #60a5fa;
+  --gradient: linear-gradient(135deg,#a78bfa,#8b5cf6);
+  --gradient-bg: radial-gradient(ellipse at 30% 20%,rgba(139,92,246,.12) 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,rgba(167,139,250,.08) 0%,transparent 50%),linear-gradient(160deg,#0c0c14 0%,#0e0e12 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2232%22%20height%3D%2232%22%20viewBox%3D%220%200%2032%2032%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M0%2016h32M16%200v32%22%20stroke%3D%22%2523a78bfa%22%20stroke-width%3D%220.4%22%20stroke-opacity%3D%220.08%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'Inter',sans-serif; --font-heading: 'Inter',sans-serif;
+  --radius: 12px; --radius-lg: 18px;
+  --shadow: 0 2px 12px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.3);
+  --shadow-hover: 0 8px 40px rgba(0,0,0,.6),0 0 0 1px rgba(167,139,250,.25);
+  --shadow-card: 0 0 0 1px rgba(167,139,250,.12),0 4px 24px rgba(0,0,0,.5);
+  --topbar-bg: rgba(14,14,18,0.9); --topbar-blur: blur(28px) saturate(180%);
+  --topbar-border: rgba(167,139,250,.12); --sidebar-bg: rgba(14,14,18,0.95);
+}
+
+/* ── 3. SAKURA — Rosa japonês delicado ── */
+[data-theme="ocean"] {
+  --bg: #fff7f9; --bg2: #ffeef4; --bg3: #ffdcea;
+  --primary: #db2777; --primary2: #be185d; --primary-text: #fff;
+  --text: #1a0a10; --text2: #78405a; --text3: #b08090;
+  --border: #f9d0e0; --card: rgba(255,255,255,0.9);
+  --green: #059669; --red: #e11d48; --blue: #7c3aed;
+  --gradient: linear-gradient(135deg,#db2777,#9d174d);
+  --gradient-bg: radial-gradient(ellipse at 10% 10%,#fce7f3 0%,transparent 50%),radial-gradient(ellipse at 90% 90%,#fdf2f8 0%,transparent 50%),linear-gradient(160deg,#fff7f9 0%,#fdf2f8 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2252%22%20height%3D%2252%22%20viewBox%3D%220%200%2052%2052%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M26%202L50%2026%2026%2050%202%2026z%22%20fill%3D%22none%22%20stroke%3D%22%2523ec4899%22%20stroke-width%3D%220.5%22%20stroke-opacity%3D%220.08%22%2F%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%2226%22%20r%3D%221%22%20fill%3D%22%2523ec4899%22%20fill-opacity%3D%220.1%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'Nunito','Inter',sans-serif; --font-heading: 'Nunito',sans-serif;
+  --radius: 18px; --radius-lg: 26px;
+  --shadow: 0 1px 3px rgba(219,39,119,.07),0 4px 16px rgba(219,39,119,.1);
+  --shadow-hover: 0 8px 32px rgba(219,39,119,.2),0 2px 8px rgba(0,0,0,.04);
+  --shadow-card: 0 0 0 1px rgba(219,39,119,.1),0 4px 20px rgba(219,39,119,.1);
+  --topbar-bg: rgba(255,247,249,0.9); --topbar-blur: blur(24px) saturate(180%);
+  --topbar-border: rgba(219,39,119,.12); --sidebar-bg: rgba(255,238,244,0.9);
+}
+
+/* ── 4. MATCHA — Verde chá, natural e calmo ── */
+[data-theme="forest"] {
+  --bg: #f2f7f2; --bg2: #e4efe4; --bg3: #cde3cd;
+  --primary: #15803d; --primary2: #166534; --primary-text: #fff;
+  --text: #0a1a0e; --text2: #3d5a3e; --text3: #7a9a7b;
+  --border: #c9dfc9; --card: rgba(255,255,255,0.88);
+  --green: #16a34a; --red: #dc2626; --blue: #0369a1;
+  --gradient: linear-gradient(135deg,#16a34a,#15803d);
+  --gradient-bg: radial-gradient(ellipse at 20% 30%,#dcfce7 0%,transparent 50%),radial-gradient(ellipse at 80% 70%,#d1fae5 0%,transparent 50%),linear-gradient(160deg,#f2f7f2 0%,#ecf5ec 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M-4%2044L44-4M-4%204L4-4M36%2044L44%2036%22%20stroke%3D%22%2523166534%22%20stroke-width%3D%221.2%22%20stroke-opacity%3D%220.07%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'DM Sans','Inter',sans-serif; --font-heading: 'DM Sans',sans-serif;
+  --radius: 14px; --radius-lg: 20px;
+  --shadow: 0 1px 4px rgba(21,128,61,.08),0 4px 16px rgba(21,128,61,.1);
+  --shadow-hover: 0 8px 32px rgba(21,128,61,.18),0 2px 8px rgba(0,0,0,.05);
+  --shadow-card: 0 0 0 1px rgba(21,128,61,.1),0 4px 20px rgba(21,128,61,.1);
+  --topbar-bg: rgba(242,247,242,0.9); --topbar-blur: blur(24px) saturate(160%);
+  --topbar-border: rgba(21,128,61,.12); --sidebar-bg: rgba(228,239,228,0.9);
+}
+
+/* ── 5. AMOLED NEON — Preto absoluto com ciano elétrico ── */
+[data-theme="candy"] {
+  --bg: #000000; --bg2: #080810; --bg3: #101018;
+  --primary: #06b6d4; --primary2: #0891b2; --primary-text: #000;
+  --text: #e0fffe; --text2: #4da8b8; --text3: #285860;
+  --border: rgba(6,182,212,.12); --card: rgba(8,8,16,0.96);
+  --green: #4ade80; --red: #f43f5e; --blue: #38bdf8;
+  --gradient: linear-gradient(135deg,#06b6d4,#0891b2);
+  --gradient-bg: radial-gradient(ellipse at 50% 0%,rgba(6,182,212,.18) 0%,transparent 60%),linear-gradient(180deg,#000 0%,#000 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2230%22%20height%3D%2230%22%20viewBox%3D%220%200%2030%2030%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ccircle%20cx%3D%2215%22%20cy%3D%2215%22%20r%3D%220.9%22%20fill%3D%22%252306b6d4%22%20fill-opacity%3D%220.18%22%2F%3E%3Ccircle%20cx%3D%220%22%20cy%3D%220%22%20r%3D%220.5%22%20fill%3D%22%252306b6d4%22%20fill-opacity%3D%220.1%22%2F%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%220%22%20r%3D%220.5%22%20fill%3D%22%252306b6d4%22%20fill-opacity%3D%220.1%22%2F%3E%3Ccircle%20cx%3D%220%22%20cy%3D%2230%22%20r%3D%220.5%22%20fill%3D%22%252306b6d4%22%20fill-opacity%3D%220.1%22%2F%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%220.5%22%20fill%3D%22%252306b6d4%22%20fill-opacity%3D%220.1%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'Inter',sans-serif; --font-heading: 'Inter',sans-serif;
+  --radius: 10px; --radius-lg: 16px;
+  --shadow: 0 2px 12px rgba(0,0,0,.9),0 0 0 1px rgba(6,182,212,.05);
+  --shadow-hover: 0 0 0 1px rgba(6,182,212,.4),0 8px 40px rgba(6,182,212,.12);
+  --shadow-card: 0 0 0 1px rgba(6,182,212,.14),0 4px 24px rgba(0,0,0,.9);
+  --topbar-bg: rgba(0,0,0,0.94); --topbar-blur: blur(24px);
+  --topbar-border: rgba(6,182,212,.16); --sidebar-bg: rgba(0,0,0,0.97);
+}
+
+/* ── 6. NORD — Escandinavo, azul gelo e cinza ártico ── */
 [data-theme="midnight"] {
-  --bg: #1c1c1e; --bg2: #2c2c2e; --bg3: #3a3a3c;
-  --primary: #0a84ff; --primary2: #0070df; --primary-text: #fff;
-  --text: #f5f5f7; --text2: #98989d; --text3: #636366;
-  --border: rgba(255,255,255,.1); --card: rgba(44,44,46,0.9);
-  --green: #32d74b; --red: #ff453a; --blue: #0a84ff;
-  --gradient: linear-gradient(135deg,#0a84ff,#0070df);
-  --gradient-bg: linear-gradient(160deg,#1c1c1e 0%,#161618 100%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 60L60 0H56L0 56V60zm60 0V56L4 0H0l60 60z' fill='%230a84ff' fill-opacity='0.02'/%3E%3C/svg%3E");
-  --font: -apple-system, 'SF Pro Display', 'Inter', sans-serif; --font-heading: -apple-system, 'SF Pro Display', sans-serif;
-  --radius: 13px; --radius-lg: 20px;
-  --shadow: 0 2px 8px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
-  --shadow-hover: 0 8px 32px rgba(10,132,255,.25), 0 2px 8px rgba(0,0,0,.4);
-  --shadow-card: 0 0 0 1px rgba(255,255,255,.06), 0 4px 20px rgba(0,0,0,.5);
-  --topbar-bg: rgba(28,28,30,0.88); --topbar-blur: blur(30px) saturate(200%);
-  --topbar-border: rgba(255,255,255,.08);
-  --sidebar-bg: rgba(28,28,30,0.95);
+  --bg: #e8edf4; --bg2: #dae0eb; --bg3: #c8d2e0;
+  --primary: #5c7cfa; --primary2: #4c6ef5; --primary-text: #fff;
+  --text: #1a2133; --text2: #4a5a7a; --text3: #8090b0;
+  --border: #c4cedf; --card: rgba(255,255,255,0.85);
+  --green: #20c997; --red: #fa5252; --blue: #4c6ef5;
+  --gradient: linear-gradient(135deg,#5c7cfa,#4c6ef5);
+  --gradient-bg: radial-gradient(ellipse at 0% 0%,#d0daf2 0%,transparent 50%),radial-gradient(ellipse at 100% 100%,#dce4f0 0%,transparent 50%),linear-gradient(160deg,#e8edf4 0%,#dfe6f0 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cline%20x1%3D%2230%22%20y1%3D%220%22%20x2%3D%2230%22%20y2%3D%2260%22%20stroke%3D%22%25235c7cfa%22%20stroke-width%3D%220.5%22%20stroke-opacity%3D%220.07%22%2F%3E%3Cline%20x1%3D%220%22%20y1%3D%2230%22%20x2%3D%2260%22%20y2%3D%2230%22%20stroke%3D%22%25235c7cfa%22%20stroke-width%3D%220.5%22%20stroke-opacity%3D%220.07%22%2F%3E%3Cline%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%2260%22%20y2%3D%2260%22%20stroke%3D%22%25235c7cfa%22%20stroke-width%3D%220.3%22%20stroke-opacity%3D%220.04%22%2F%3E%3Cline%20x1%3D%2260%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%2260%22%20stroke%3D%22%25235c7cfa%22%20stroke-width%3D%220.3%22%20stroke-opacity%3D%220.04%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'Inter',sans-serif; --font-heading: 'Inter',sans-serif;
+  --radius: 10px; --radius-lg: 16px;
+  --shadow: 0 1px 4px rgba(76,110,245,.1),0 4px 16px rgba(76,110,245,.12);
+  --shadow-hover: 0 8px 32px rgba(76,110,245,.22),0 2px 8px rgba(0,0,0,.06);
+  --shadow-card: 0 0 0 1px rgba(76,110,245,.1),0 4px 20px rgba(76,110,245,.12);
+  --topbar-bg: rgba(232,237,244,0.92); --topbar-blur: blur(24px) saturate(180%);
+  --topbar-border: rgba(76,110,245,.12); --sidebar-bg: rgba(224,230,240,0.92);
 }
 
-/* ── 7. SUNSET PRO (warm premium, like Notion warmth) ── */
+/* ── 7. MANUSCRIPT — Editorial creme com tipografia serif ── */
 [data-theme="sunset"] {
-  --bg: #faf9f7; --bg2: #f4f0eb; --bg3: #ebe5dc;
-  --primary: #e8590c; --primary2: #c7490a; --primary-text: #fff;
-  --text: #191816; --text2: #6f6860; --text3: #aba49a;
-  --border: #e8e2d9; --card: rgba(255,255,255,0.95);
-  --green: #448361; --red: #c73535; --blue: #3b6ea5;
-  --gradient: linear-gradient(135deg,#e8590c,#c7490a);
-  --gradient-bg: linear-gradient(160deg,#fdf8f3 0%,#faf9f7 100%);
-  --bg-pattern: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23e8590c' fill-opacity='0.03'/%3E%3C/svg%3E");
-  --font: 'DM Sans', 'Inter', sans-serif; --font-heading: 'Fraunces', 'Georgia', serif;
-  --radius: 12px; --radius-lg: 20px;
-  --shadow: 0 1px 4px rgba(25,24,22,.06), 0 4px 12px rgba(25,24,22,.08);
-  --shadow-hover: 0 8px 32px rgba(232,89,12,.15), 0 2px 8px rgba(25,24,22,.1);
-  --shadow-card: 0 0 0 1px rgba(25,24,22,.06), 0 2px 16px rgba(25,24,22,.07);
-  --topbar-bg: rgba(255,255,255,0.9); --topbar-blur: blur(20px) saturate(160%);
-  --topbar-border: rgba(25,24,22,.08);
-  --sidebar-bg: rgba(244,240,235,0.9);
+  --bg: #faf8f3; --bg2: #f4f0e6; --bg3: #ebe4d4;
+  --primary: #b45309; --primary2: #92400e; --primary-text: #fff;
+  --text: #1c1208; --text2: #6b5a3e; --text3: #a0907a;
+  --border: #e0d6c4; --card: rgba(255,253,245,0.92);
+  --green: #15803d; --red: #b91c1c; --blue: #1d4ed8;
+  --gradient: linear-gradient(135deg,#b45309,#92400e);
+  --gradient-bg: radial-gradient(ellipse at 30% 10%,#fef3c7 0%,transparent 50%),radial-gradient(ellipse at 70% 90%,rgba(253,230,138,.12) 0%,transparent 50%),linear-gradient(160deg,#fdfaf3 0%,#faf7ee 100%);
+  --bg-pattern: url("data:image/svg+xml,%3Csvg%20width%3D%22100%22%20height%3D%2232%22%20viewBox%3D%220%200%20100%2032%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cline%20x1%3D%220%22%20y1%3D%2231.5%22%20x2%3D%22100%22%20y2%3D%2231.5%22%20stroke%3D%22%2523b45309%22%20stroke-width%3D%220.7%22%20stroke-opacity%3D%220.09%22%2F%3E%3C%2Fsvg%3E");
+  --font: 'DM Sans',sans-serif; --font-heading: 'Fraunces','Georgia',serif;
+  --radius: 8px; --radius-lg: 14px;
+  --shadow: 0 1px 4px rgba(26,18,8,.07),0 4px 12px rgba(26,18,8,.08);
+  --shadow-hover: 0 8px 28px rgba(180,83,9,.15),0 2px 8px rgba(26,18,8,.08);
+  --shadow-card: 0 0 0 1px rgba(26,18,8,.07),0 2px 16px rgba(26,18,8,.07);
+  --topbar-bg: rgba(250,248,243,0.92); --topbar-blur: blur(20px) saturate(140%);
+  --topbar-border: rgba(26,18,8,.08); --sidebar-bg: rgba(244,240,230,0.94);
 }
 
-/* ═══════════════════════════════════════
    BASE STYLES
 ═══════════════════════════════════════ */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -241,13 +238,10 @@ body {
 .topbar .t-ic-btn {
   color: var(--topbar-text, var(--text));
 }
-[data-theme="forest"] .t-logo-ic { background: rgba(255,255,255,.15); }
-[data-theme="forest"] .t-ic-btn { background: rgba(255,255,255,.12); color: rgba(255,255,255,.9); }
-[data-theme="forest"] .t-ic-btn:hover { background: rgba(255,255,255,.2); }
-[data-theme="forest"] .ubtn { background: rgba(255,255,255,.15); color: #fff; }
-[data-theme="forest"] .ubtn:hover { background: rgba(255,255,255,.22); }
-[data-theme="forest"] .t-bc { color: rgba(255,255,255,.75); }
-[data-theme="forest"] .offline-pill { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.2); color: #fff; }
+/* AMOLED Neon — botão com texto escuro no fundo claro */
+[data-theme="candy"] .btn-login { color: #fff; }
+[data-theme="candy"] .btn { color: var(--text); }
+[data-theme="candy"] .fcard:hover { box-shadow: var(--shadow-hover); }
 .t-ic-btn {
   width:32px; height:32px; border:none; background:var(--bg2); border-radius:8px;
   cursor:pointer; font-size:15px; display:flex; align-items:center; justify-content:center;
@@ -1271,13 +1265,13 @@ body {
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 const THEMES = {
-  terra:    { name:'FamCloud',      emoji:'☁️',  dots:['#2563eb','#1d4ed8','#dbeafe'], meta:'#2563eb' },
-  dark:     { name:'Dark Pro',      emoji:'🌌',  dots:['#818cf8','#6366f1','#13141a'], meta:'#818cf8' },
-  ocean:    { name:'Dropbox',       emoji:'📦',  dots:['#0061ff','#0052d6','#f5f8ff'], meta:'#0061ff' },
-  forest:   { name:'WhatsApp',      emoji:'💬',  dots:['#075e54','#25d366','#eae6df'], meta:'#075e54' },
-  candy:    { name:'AMOLED',        emoji:'⚫',  dots:['#ff6b6b','#ee5a24','#000000'], meta:'#ff6b6b' },
-  midnight: { name:'iCloud',        emoji:'🍎',  dots:['#0a84ff','#32d74b','#1c1c1e'], meta:'#0a84ff' },
-  sunset:   { name:'Warm Notion',   emoji:'📝',  dots:['#e8590c','#c7490a','#faf9f7'], meta:'#e8590c' }
+  terra:    { name:'FamCloud',    emoji:'🌌', dots:['#4f46e5','#7c3aed','#e8eaff'], meta:'#4f46e5' },
+  dark:     { name:'Obsidian',    emoji:'💎', dots:['#a78bfa','#8b5cf6','#0e0e12'], meta:'#a78bfa' },
+  ocean:    { name:'Sakura',      emoji:'🌸', dots:['#db2777','#ec4899','#fff7f9'], meta:'#db2777' },
+  forest:   { name:'Matcha',      emoji:'🍵', dots:['#16a34a','#15803d','#f2f7f2'], meta:'#16a34a' },
+  candy:    { name:'AMOLED Neon', emoji:'⚡', dots:['#06b6d4','#0891b2','#000000'], meta:'#06b6d4' },
+  midnight: { name:'Nord',        emoji:'❄️',  dots:['#5c7cfa','#4c6ef5','#e8edf4'], meta:'#5c7cfa' },
+  sunset:   { name:'Manuscript',  emoji:'📜', dots:['#b45309','#92400e','#faf8f3'], meta:'#b45309' }
 };
 
 let currentTheme = localStorage.getItem('fc_theme') || 'terra';
@@ -1341,6 +1335,11 @@ const AE = ['mp3','aac','flac','wav','m4a','ogg','opus'];
 // Cloudflare Worker URL — substitui pelo teu após deploy do worker
 // Ex: https://famcloud.SEU-NOME.workers.dev
 const PROXY = localStorage.getItem('fc_proxy') || 'https://famcloud.famcloud.workers.dev';
+// URL directo do Nextcloud — usado APENAS no header Destination do WebDAV MOVE/COPY
+// O Nextcloud valida que o Destination pertence ao mesmo servidor
+const NC = 'https://nx91769.your-storageshare.de';
+const davDest = p => NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.user) + p;
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 // ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
@@ -2062,7 +2061,7 @@ async function handleDrop(destPath) {
   const srcParent = src.replace(/\/$/,'').substring(0, src.replace(/\/$/,'').lastIndexOf('/')+1);
   if (srcParent === dest || src === dest) { toast('Já está nessa pasta.'); S.dragItem=null; return; }
   const srcNm = src.replace(/\/$/,'').split('/').pop();
-  const destUrl = PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + dest + encodeURIComponent(srcNm);
+  const destUrl = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + dest + encodeURIComponent(srcNm);
   try {
     const r = await fetch(dav(src), { method:'MOVE', headers:{'Authorization':auth(),'Destination':destUrl,'Overwrite':'F'} });
     if (r.ok || r.status===201 || r.status===204) {
@@ -2203,7 +2202,7 @@ async function doRename() {
   const n = document.getElementById('ri').value.trim();
   if (!n || !S.renameTarget) return;
   const par = S.renameTarget.p.replace(/\/$/,'').substring(0, S.renameTarget.p.replace(/\/$/,'').lastIndexOf('/')+1);
-  const dest = PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + par + encodeURIComponent(n);
+  const dest = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + par + encodeURIComponent(n);
   try {
     const r = await fetch(dav(S.renameTarget.p), { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'F'} });
     if (r.ok || r.status===201 || r.status===204) { toast('Renomeado!', 'ok'); hideM('rename'); loadFiles(S.path); }
@@ -2261,7 +2260,7 @@ async function doMove() {
   let ok = 0;
   for (const src of S.moveTargets) {
     const srcNm = src.replace(/\/$/,'').split('/').pop();
-    const destUrl = PROXY+'/nextcloud/remote.php/dav/files/'+encodeURIComponent(S.user)+dest+encodeURIComponent(srcNm);
+    const destUrl = NC+'/remote.php/dav/files/'+encodeURIComponent(S.user)+dest+encodeURIComponent(srcNm);
     try {
       const r = await fetch(dav(src), { method:'MOVE', headers:{'Authorization':auth(),'Destination':destUrl,'Overwrite':'F'} });
       if (r.ok || r.status===201 || r.status===204) ok++;
@@ -2593,7 +2592,7 @@ async function restoreItem(rawHref, fname) {
   const full = rawHref.startsWith('http') ? rawHref :
                rawHref.startsWith('/nextcloud') ? rawHref : '/nextcloud' + rawHref;
   // Destination: /trashbin/user/restore/filename
-  const dest = PROXY + '/nextcloud/remote.php/dav/trashbin/'+encodeURIComponent(S.user)+'/restore/'+encodeURIComponent(fname);
+  const dest = NC + '/remote.php/dav/trashbin/'+encodeURIComponent(S.user)+'/restore/'+encodeURIComponent(fname);
   try {
     const r = await fetch(full, { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'F'} });
     if (r.ok || r.status===201 || r.status===204) {
@@ -3441,7 +3440,7 @@ async function openVersions(path, name, fileid) {
 async function restoreVersion(verHref, name) {
   if (!versionsTarget || !confirm('Restaurar esta versão de "'+name+'"? A versão actual será substituída.')) return;
   const src = verHref.startsWith('http') ? verHref : PROXY+(verHref.startsWith('/nextcloud') ? verHref : '/nextcloud'+verHref);
-  const dest = dav(versionsTarget.path);
+  const dest = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + versionsTarget.path;
   try {
     const r = await fetch(src, { method:'COPY', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'T'} });
     if (r.ok || r.status===201 || r.status===204) {
