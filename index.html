@@ -1875,6 +1875,13 @@ function renderFiles(items) {
     fl.innerHTML = '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' + items.map(row).join('') + '</div>';
     addSwipeListeners();
   }
+  // Carrega thumbnails com autenticação
+  requestAnimationFrame(() => {
+    fl.querySelectorAll('img[data-src]').forEach(img => {
+      const src = img.dataset.src;
+      if (src) { delete img.dataset.src; authImg(img, src); }
+    });
+  });
 }
 
 function card(it) {
