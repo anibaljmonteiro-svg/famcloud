@@ -941,7 +941,7 @@ body {
       </div>
       <input type="file" id="ufi" multiple onchange="uploadFiles(this.files)">
       <input type="file" id="folder-ufi" multiple webkitdirectory onchange="uploadFiles(this.files)">
-      <input type="file" id="cam-input" accept="image/*" capture="environment" onchange="uploadFiles(this.files)">
+      <input type="file" id="cam-input" accept="image/*,video/*" capture="environment" onchange="uploadFiles(this.files)">
       <div id="fl"></div>
     </div>
   </div><!-- app-body -->
@@ -1345,9 +1345,37 @@ const AE = ['mp3','aac','flac','wav','m4a','ogg','opus'];
 // Cloudflare Worker URL — substitui pelo teu após deploy do worker
 // Ex: https://famcloud.SEU-NOME.workers.dev
 const PROXY = localStorage.getItem('fc_proxy') || 'https://famcloud.famcloud.workers.dev';
+
+// ─── FETCH WRAPPER com intercept 401 ──────────────────────────────────────
+// Apanha sessões expiradas em qualquer chamada e tenta re-autenticar silenciosamente
+const _origFetch = window.fetch.bind(window);
+window.fetch = async (url, opts={}) => {
+  const r = await _origFetch(url, opts);
+  if (r.status === 401 && S.user && url.toString().includes(PROXY)) {
+    // Tenta refresh silencioso com credenciais guardadas
+    const saved = localStorage.getItem('fc_cred');
+    if (saved) {
+      try {
+        const d = JSON.parse(saved);
+        S.user = d.user; S.pass = d.pass;
+        // Retry o pedido original uma vez
+        const r2 = await _origFetch(url, {
+          ...opts,
+          headers: { ...(opts.headers||{}), 'Authorization': auth() }
+        });
+        if (r2.status !== 401) return r2;
+      } catch(e) {}
+    }
+    // Falhou mesmo — força logout limpo
+    if (S.user) { toast('Sessão expirada. Volta a entrar.', 'err'); setTimeout(doLogout, 1500); }
+  }
+  return r;
+};
 // URL directo do Nextcloud — usado APENAS no header Destination do WebDAV MOVE/COPY
 // O Nextcloud valida que o Destination pertence ao mesmo servidor
 const NC = 'https://nx91769.your-storageshare.de';
+// Encoding seguro para nomes de ficheiros portugueses (acentos, espaços, etc.)
+const safeName = n => encodeURIComponent(n).replace(/%20/g,' ');
 const davDest = p => NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
 const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.user) + p;
 
@@ -1355,6 +1383,11 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 // ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
 // <img src=""> não envia Authorization. Carregamos via fetch com auth → blob URL
 const _imgCache = new Map();
+// Gera URL de thumbnail nativo do Nextcloud (muito mais rápido — já redimensionado e cacheado)
+function thumbUrl(fileid, size=256) {
+  if (!fileid) return null;
+  return PROXY + '/nextcloud/index.php/core/preview?fileId=' + fileid + '&x=' + size + '&y=' + size + '&forceIcon=0&a=1';
+}
 async function authImg(el, url) {
   if (!url) return;
   if (_imgCache.has(url)) { el.src = _imgCache.get(url); return; }
@@ -1362,6 +1395,7 @@ async function authImg(el, url) {
     const r = await fetch(url, { headers: { 'Authorization': auth() } });
     if (!r.ok) { el.src=''; return; }
     const blob = await r.blob();
+    if (!blob.type.startsWith('image/')) { el.src=''; return; }
     const objUrl = URL.createObjectURL(blob);
     _imgCache.set(url, objUrl);
     el.src = objUrl;
@@ -1582,7 +1616,7 @@ async function uploadAvatar(file) {
   } catch(e) {}
   // Fallback: WebDAV
   try {
-    await fetch(dav('/.famcloud-avatars'), { method:'MKCOL', headers:{'Authorization':auth()} }).catch(()=>{});
+    await fetch(dav('/.famcloud-avatars'), { method:'MKCOL', headers:{'Authorization':auth()} }).catch(()=>{}); // 405=já existe, ok
     const ext = file.name.split('.').pop().toLowerCase();
     const p = `/.famcloud-avatars/${S.user}.${ext}`;
     await fetch(dav(p), { method:'PUT', headers:{'Authorization':auth()}, body:file });
@@ -1902,7 +1936,8 @@ function card(it) {
   if (isDir) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
-    inner = `<img class="thumb" data-src="${dav(p)}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
+    const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
+    inner = `<img class="thumb" data-src="${tUrl}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
   } else if (isVid(nm)) {
     inner = `<div class="fic ic-v">🎬</div>`;
   } else {
@@ -2046,15 +2081,20 @@ function addSwipeListeners() {
 async function bulkDelete() {
   const paths = [...S.selected];
   if (!paths.length) return;
-  if (!confirm(`Mover ${paths.length} item(ns) para o lixo?`)) return;
-  let ok = 0;
+  const names = S.lastItems.filter(it=>paths.includes(it.path)).map(it=>it.name);
+  if (!confirm(`Apagar ${paths.length} item${paths.length>1?'ns':''}?\n${names.slice(0,5).join('\n')}${names.length>5?'\n+' +(names.length-5)+' mais':''}`)) return;
+  let done = 0, errors = 0;
+  toast(`🗑️ A apagar ${paths.length} item${paths.length>1?'ns':''}...`);
   for (const p of paths) {
     try {
       const r = await fetch(dav(p), { method:'DELETE', headers:{'Authorization':auth()} });
-      if (r.ok || r.status===204) ok++;
-    } catch(e) {}
+      if (r.ok || r.status===204 || r.status===404) done++;
+      else errors++;
+    } catch(e) { errors++; }
   }
-  toast(`${ok} item(ns) apagado(s).`, 'ok');
+  if (errors && done===0) toast(`❌ Erro ao apagar. Tenta novamente.`, 'err');
+  else if (errors) toast(`⚠️ ${done} apagado${done>1?'s':''}, ${errors} com erro.`, 'err');
+  else toast(`🗑️ ${done} item${done>1?'ns':''} apagado${done>1?'s':''}.`, 'ok');
   clearSel(); loadFiles(S.path); loadStorage();
 }
 
@@ -2165,34 +2205,48 @@ async function uploadFiles(fl) {
       }
       destDir = cur;
     }
-    const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/');
+    const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/').replace(/'/g,'%27');
     const fileStart = Date.now();
-    await new Promise(resolve => {
-      const xhr = new XMLHttpRequest(); S.uploadXHR = xhr;
-      xhr.upload.onprogress = e => {
-        const fileSent = e.loaded;
-        const totalSent = sentBytes + fileSent;
-        const pct = Math.min(99, Math.round(totalSent / totalBytes * 100));
-        document.getElementById('uprog-bar').style.width = pct + '%';
-        const elapsed = (Date.now() - startTime) / 1000 || 0.001;
-        document.getElementById('uprog-speed').textContent = fmtSz(totalSent / elapsed) + '/s';
-      };
-      xhr.onload = () => { if (xhr.status >= 400) errors++; sentBytes += f.size; resolve(); };
-      xhr.onerror = () => { errors++; resolve(); };
-      xhr.onabort = () => resolve();
-      xhr.open('PUT', dav(destPath));
-      xhr.setRequestHeader('Authorization', auth());
-      xhr.send(f);
-    });
+    // Retry até 3 vezes com backoff exponencial
+    let uploaded = false;
+    for (let attempt = 0; attempt < 3 && !S.uploadCancel && !uploaded; attempt++) {
+      if (attempt > 0) {
+        document.getElementById('uprog-file').textContent = `↻ Retry ${attempt}/2: ${f.name}`;
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+      const ok = await new Promise(resolve => {
+        const xhr = new XMLHttpRequest(); S.uploadXHR = xhr;
+        xhr.upload.onprogress = e => {
+          const totalSent = sentBytes + e.loaded;
+          const pct = Math.min(99, Math.round(totalSent / totalBytes * 100));
+          document.getElementById('uprog-bar').style.width = pct + '%';
+          const elapsed = (Date.now() - startTime) / 1000 || 0.001;
+          document.getElementById('uprog-speed').textContent = fmtSz(totalSent / elapsed) + '/s';
+        };
+        xhr.onload = () => resolve(xhr.status < 400);
+        xhr.onerror = () => resolve(false);
+        xhr.onabort = () => resolve(null); // null = cancelado
+        xhr.open('PUT', dav(destPath));
+        xhr.setRequestHeader('Authorization', auth());
+        xhr.send(f);
+      });
+      if (ok === null) break; // cancelado
+      if (ok) { uploaded = true; } else if (attempt === 2) { errors++; }
+    }
+    if (uploaded) sentBytes += f.size;
     done++;
   }
   document.getElementById('uprog-bar').style.width = '100%';
   setTimeout(() => { prog.style.display='none'; document.getElementById('uprog-bar').style.width='0%'; }, 900);
   S.uploadXHR = null;
   if (!S.uploadCancel) {
-    if (errors) toast(`${done-errors} carregado(s), ${errors} com erro.`, 'err');
-    else toast(`${done} ficheiro${done>1?'s':''} carregado${done>1?'s':''}! 🎉`, 'ok');
+    const ok = done - errors;
+    if (errors && ok === 0) toast(`❌ ${errors} ficheiro${errors>1?'s':''} falharam. Tenta novamente.`, 'err');
+    else if (errors) toast(`⚠️ ${ok} carregado${ok>1?'s':''}, ${errors} falharam.`, 'err');
+    else toast(`✅ ${ok} ficheiro${ok>1?'s':''} carregado${ok>1?'s':''}!`, 'ok');
     loadFiles(S.path); loadStorage(); setTimeout(() => loadTree('/'), 600);
+  } else {
+    toast('Upload cancelado.', '');
   }
   ['ufi','folder-ufi','cam-input'].forEach(id => { document.getElementById(id).value=''; });
 }
@@ -3667,6 +3721,10 @@ window.addEventListener('load', () => {
   applyTheme(currentTheme);
   renderThemeDots();
   renderThemeGrid();
+  restoreSession();
+});
+
+function restoreSession() {
   // sessionStorage (tab) → localStorage (PWA persistent) → show login
   const s = sessionStorage.getItem('fc') || localStorage.getItem('fc_cred');
   if (s) {
@@ -3676,8 +3734,29 @@ window.addEventListener('load', () => {
         S.server = PROXY; S.user = d.user; S.pass = d.pass;
         sessionStorage.setItem('fc', s);
         initApp();
+        return;
       }
     } catch(e) {}
+  }
+  // Nenhuma sessão — mostra login
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+// iOS PWA: ao voltar ao primeiro plano, verifica se a sessão ainda é válida
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.user) {
+    // Ping silencioso ao DAV para validar sessão
+    fetch(dav('/'), { method:'PROPFIND', headers:{'Authorization':auth(),'Depth':'0'} })
+      .then(r => {
+        if (r.status === 401) {
+          const saved = localStorage.getItem('fc_cred');
+          if (saved) {
+            try { const d=JSON.parse(saved); S.user=d.user; S.pass=d.pass; } catch(e){}
+          } else { doLogout(); }
+        }
+      }).catch(() => {}); // offline — não fazer nada
+    // Actualiza barra de quota ao voltar ao primeiro plano
+    loadStorage();
   }
 });
 
