@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="FamCloud">
 <meta name="theme-color" id="meta-theme" content="#c4956a">
 <title>FamCloud</title>
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;1,9..144,400&family=Nunito:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
@@ -1218,7 +1218,7 @@ body {
     <div class="err-msg" id="ev-err"></div>
     <div class="mac">
       <button class="btn btn-s" onclick="hideM('newevent')">Cancelar</button>
-      <button class="btn btn-p" onclick="createEvent()">Criar evento</button>
+      <button class="btn btn-p" onclick="submitNewEvent()">Criar evento</button>
     </div>
   </div>
 </div>
@@ -1343,6 +1343,23 @@ const AE = ['mp3','aac','flac','wav','m4a','ogg','opus'];
 const PROXY = localStorage.getItem('fc_proxy') || 'https://famcloud.famcloud.workers.dev';
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
+// ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
+// <img src=""> não envia Authorization. Carregamos via fetch com auth → blob URL
+const _imgCache = new Map();
+async function authImg(el, url) {
+  if (!url) return;
+  if (_imgCache.has(url)) { el.src = _imgCache.get(url); return; }
+  try {
+    const r = await fetch(url, { headers: { 'Authorization': auth() } });
+    if (!r.ok) { el.src=''; return; }
+    const blob = await r.blob();
+    const objUrl = URL.createObjectURL(blob);
+    _imgCache.set(url, objUrl);
+    el.src = objUrl;
+  } catch(e) { el.src=''; }
+}
+
+
 const b64 = s => btoa(unescape(encodeURIComponent(s)));
 const auth = () => 'Basic ' + b64(S.user + ':' + S.pass);
 const dav = p => PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
@@ -1869,7 +1886,7 @@ function card(it) {
   if (isDir) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
-    inner = `<img class="thumb" src="${dav(p)}" loading="lazy" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
+    inner = `<img class="thumb" data-src="${dav(p)}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
   } else if (isVid(nm)) {
     inner = `<div class="fic ic-v">🎬</div>`;
   } else {
@@ -2271,14 +2288,17 @@ function renderGallery() {
   const it = S.galleryItems[S.galleryIdx]; if (!it) return;
   const img = document.getElementById('gallery-img');
   img.style.transform = 'scale(1)'; img.classList.remove('zoomed'); S.galleryZoom = 1;
-  img.src = dav(it.path);
+  img.src = ''; authImg(img, dav(it.path));
   document.getElementById('gallery-nm').textContent = it.name;
   document.getElementById('gallery-count').textContent = (S.galleryIdx+1) + ' / ' + S.galleryItems.length;
   // strip thumbnails
   const strip = document.getElementById('gallery-strip');
   strip.innerHTML = S.galleryItems.map((g,i) =>
-    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" src="${dav(g.path)}" loading="lazy" alt="${g.name}" onclick="galleryGoTo(${i})">`
+    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="galleryGoTo(${i})">`
   ).join('');
+  strip.querySelectorAll('img[data-src]').forEach(img => {
+    const src = img.dataset.src; delete img.dataset.src; authImg(img, src);
+  });
   setTimeout(() => {
     const at = strip.querySelector('.active');
     if (at) at.scrollIntoView({inline:'center', behavior:'smooth'});
@@ -2936,7 +2956,7 @@ async function loadCalEvents() {
           <c:time-range start="${start}" end="${end}"/>
         </c:comp-filter></c:comp-filter></c:filter>
       </c:calendar-query>`;
-      const href = cal.href.startsWith('/nextcloud') ? cal.href : '/nextcloud'+cal.href;
+      const href = cal.href.startsWith('http') ? cal.href : PROXY+(cal.href.startsWith('/nextcloud') ? cal.href : '/nextcloud'+cal.href);
       const r = await fetch(href, { method:'REPORT', headers:{'Authorization':auth(),'Depth':'1','Content-Type':'application/xml'}, body });
       if (!r.ok) continue;
       const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
@@ -3074,7 +3094,7 @@ function calDayClick(d, m, y) {
   setTimeout(()=>document.getElementById('ev-title').focus(), 80);
 }
 
-async function createEvent() {
+async function submitNewEvent() {
   const title = document.getElementById('ev-title').value.trim();
   const calHref = document.getElementById('ev-cal-sel').value;
   const date = document.getElementById('ev-date').value;
@@ -3109,8 +3129,7 @@ async function createEvent() {
   icalLines.push('END:VEVENT', 'END:VCALENDAR');
   const ical = icalLines.join(CRLF) + CRLF;
 
-  const base = calHref.startsWith('http') ? calHref : 
-               calHref.startsWith('/nextcloud') ? calHref : '/nextcloud'+calHref;
+  const base = calHref.startsWith('http') ? calHref : PROXY+(calHref.startsWith('/nextcloud') ? calHref : '/nextcloud'+calHref);
   const url  = base.endsWith('/') ? base+uid+'.ics' : base+'/'+uid+'.ics';
 
   try {
@@ -3127,7 +3146,7 @@ async function createEvent() {
 
 async function deleteEvent(evHref, calHref, title) {
   if (!confirm('Apagar o evento "'+title+'"?')) return;
-  const url = evHref.startsWith('/nextcloud') ? evHref : '/nextcloud'+evHref;
+  const url = evHref.startsWith('http') ? evHref : PROXY+(evHref.startsWith('/nextcloud') ? evHref : '/nextcloud'+evHref);
   try {
     const r = await fetch(url, { method:'DELETE', headers:{'Authorization':auth()} });
     if (r.ok || r.status===204 || r.status===404) { toast('Evento apagado.','ok'); loadCalEvents(); }
