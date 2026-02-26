@@ -414,11 +414,21 @@ body {
 .fc.folder .fic { width:62px; height:62px; font-size:30px; border-radius:14px; }
 .fc.dragging { opacity:.3; transform:scale(.92); }
 .fc.drag-over { border-color:var(--green) !important; background:rgba(90,138,106,.08); }
-.fc.selected { border-color:var(--primary) !important; background:var(--bg2); }
-.fc.selected::after {
-  content:'✓'; position:absolute; top:6px; left:6px; width:20px; height:20px;
-  background:var(--primary); color:#fff; border-radius:50%; font-size:11px;
-  display:flex; align-items:center; justify-content:center; font-weight:700;
+.fc.selected { border-color:var(--primary) !important; background:rgba(var(--primary-rgb,79,70,229),.06); }
+/* Checkbox overlay on cards */
+.fc-chk {
+  position:absolute; top:7px; left:7px; width:22px; height:22px;
+  border-radius:50%; border:2px solid var(--border);
+  background:rgba(255,255,255,.85); backdrop-filter:blur(4px);
+  display:none; align-items:center; justify-content:center;
+  font-size:11px; font-weight:700; cursor:pointer; z-index:2;
+  transition:all .15s; flex-shrink:0; color:transparent;
+}
+.fc:hover .fc-chk,
+.selecting .fc-chk { display:flex; }
+.fc.selected .fc-chk {
+  background:var(--primary); border-color:var(--primary);
+  color:#fff; display:flex;
 }
 .fic { width:50px; height:50px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:24px; }
 .ic-f { background:linear-gradient(135deg,#fff3e0,#ffe0b2); }
@@ -878,12 +888,12 @@ body {
   <div class="sel-bar" id="sel-bar">
     <span class="sel-count" id="sel-count">0 selecionados</span>
     <div class="sel-actions">
-      <button class="sel-btn" onclick="selAll()">✓ Todos</button>
+      <button class="sel-btn" onclick="selAll()">☑️ Todos</button>
       <button class="sel-btn" onclick="bulkDownload()">⬇️ Download</button>
       <button class="sel-btn" onclick="bulkMoveOpen()">📦 Mover</button>
       <button class="sel-btn sel-del" onclick="bulkDelete()">🗑️ Apagar</button>
     </div>
-    <button class="sel-cancel" onclick="clearSel()">✕</button>
+    <button class="sel-cancel" onclick="clearSel()">✕ Cancelar</button>
   </div>
 
   <!-- STORAGE BAR -->
@@ -1911,6 +1921,7 @@ function card(it) {
     ondragstart="dStart(event,'${sp}','${sn}',${isDir})"
     ondragend="dEnd(event)"
     ${isDir?`ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')"`:''}>
+    <div class="fc-chk" onclick="event.stopPropagation();enterOrToggleSel('${sp}')">✓</div>
     <div class="fac">
       ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();dlF('${sp}','${sn}')" title="Download">⬇️</button>`:''}
       <button class="fab fa-sh" onclick="event.stopPropagation();shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
@@ -1964,22 +1975,38 @@ function fcClick(e, path, openFn) {
 
 function enterSel(path) {
   S.selecting = true; S.selected.clear(); S.selected.add(path);
+  document.getElementById('fl').classList.add('selecting');
   updateSelBar(); renderFiles(S.lastItems);
+}
+
+function enterOrToggleSel(path) {
+  if (!S.selecting) {
+    S.selecting = true; S.selected.clear();
+    document.getElementById('fl').classList.add('selecting');
+  }
+  toggleSel(path);
 }
 
 function toggleSel(path) {
   if (S.selected.has(path)) S.selected.delete(path); else S.selected.add(path);
-  if (S.selected.size === 0) clearSel(); else { updateSelBar(); renderFiles(S.lastItems); }
+  if (S.selected.size === 0) { clearSel(); }
+  else {
+    document.getElementById('fl').classList.add('selecting');
+    updateSelBar(); renderFiles(S.lastItems);
+  }
 }
 
 function clearSel() {
   S.selecting = false; S.selected.clear(); updateSelBar();
+  document.getElementById('fl').classList.remove('selecting');
   if (S.lastItems.length) renderFiles(S.lastItems);
 }
 
 function selAll() {
   S.lastItems.forEach(it => S.selected.add(it.path));
-  S.selecting = true; updateSelBar(); renderFiles(S.lastItems);
+  S.selecting = true;
+  document.getElementById('fl').classList.add('selecting');
+  updateSelBar(); renderFiles(S.lastItems);
 }
 
 function updateSelBar() {
