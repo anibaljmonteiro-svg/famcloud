@@ -1383,23 +1383,41 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 // ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
 // <img src=""> não envia Authorization. Carregamos via fetch com auth → blob URL
 const _imgCache = new Map();
-// Gera URL de thumbnail nativo do Nextcloud (muito mais rápido — já redimensionado e cacheado)
+// Gera URL de thumbnail nativo do Nextcloud
 function thumbUrl(fileid, size=256) {
   if (!fileid) return null;
   return PROXY + '/nextcloud/index.php/core/preview?fileId=' + fileid + '&x=' + size + '&y=' + size + '&forceIcon=0&a=1';
 }
-async function authImg(el, url) {
+async function authImg(el, url, fallbackUrl) {
   if (!url) return;
-  if (_imgCache.has(url)) { el.src = _imgCache.get(url); return; }
+  const cacheKey = url;
+  if (_imgCache.has(cacheKey)) { el.src = _imgCache.get(cacheKey); return; }
   try {
-    const r = await fetch(url, { headers: { 'Authorization': auth() } });
-    if (!r.ok) { el.src=''; return; }
-    const blob = await r.blob();
-    if (!blob.type.startsWith('image/')) { el.src=''; return; }
-    const objUrl = URL.createObjectURL(blob);
-    _imgCache.set(url, objUrl);
-    el.src = objUrl;
-  } catch(e) { el.src=''; }
+    const r = await fetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow' });
+    if (r.ok) {
+      const blob = await r.blob();
+      if (blob.type.startsWith('image/') && blob.size > 100) {
+        const objUrl = URL.createObjectURL(blob);
+        _imgCache.set(cacheKey, objUrl);
+        el.src = objUrl;
+        return;
+      }
+    }
+    // Falhou thumbnail — tenta o ficheiro completo como fallback
+    if (fallbackUrl && fallbackUrl !== url) {
+      if (_imgCache.has(fallbackUrl)) { el.src = _imgCache.get(fallbackUrl); return; }
+      const r2 = await fetch(fallbackUrl, { headers: { 'Authorization': auth() } });
+      if (r2.ok) {
+        const blob2 = await r2.blob();
+        if (blob2.type.startsWith('image/')) {
+          const objUrl2 = URL.createObjectURL(blob2);
+          _imgCache.set(fallbackUrl, objUrl2);
+          _imgCache.set(cacheKey, objUrl2);
+          el.src = objUrl2;
+        }
+      }
+    }
+  } catch(e) { /* silencioso — mostra ícone genérico */ }
 }
 
 
@@ -1922,7 +1940,8 @@ function renderFiles(items) {
   requestAnimationFrame(() => {
     fl.querySelectorAll('img[data-src]').forEach(img => {
       const src = img.dataset.src;
-      if (src) { delete img.dataset.src; authImg(img, src); }
+      const fb = img.dataset.fb || null;
+      if (src) { delete img.dataset.src; delete img.dataset.fb; authImg(img, src, fb); }
     });
   });
 }
@@ -1937,7 +1956,8 @@ function card(it) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
     const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
-    inner = `<img class="thumb" data-src="${tUrl}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
+    const fbUrl = fileid ? dav(p) : null;
+    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
   } else if (isVid(nm)) {
     inner = `<div class="fic ic-v">🎬</div>`;
   } else {
@@ -3734,12 +3754,59 @@ function restoreSession() {
         S.server = PROXY; S.user = d.user; S.pass = d.pass;
         sessionStorage.setItem('fc', s);
         initApp();
+        // Verifica se há ficheiros partilhados pelo Android share target
+        if (new URLSearchParams(location.search).get('shared') === '1') {
+          setTimeout(checkPendingShares, 1200);
+        }
         return;
       }
     } catch(e) {}
   }
   // Nenhuma sessão — mostra login
   document.getElementById('login-screen').style.display = 'flex';
+}
+
+// ── SHARE TARGET: lê ficheiros do IndexedDB e faz upload ────────────────────
+async function checkPendingShares() {
+  try {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open('famcloud-share', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('pending', { autoIncrement: true });
+      r.onsuccess = e => res(e.target.result);
+      r.onerror = () => rej(r.error);
+    });
+
+    const tx = db.transaction('pending', 'readwrite');
+    const store = tx.objectStore('pending');
+    const allReq = store.getAll();
+    const allKeysReq = store.getAllKeys();
+
+    await new Promise(r => { tx.oncomplete = r; tx.onerror = r; allReq; allKeysReq; });
+
+    const items = allReq.result || [];
+    const keys  = allKeysReq.result || [];
+
+    if (!items.length) return;
+
+    // Mostra toast de confirmação
+    const count = items.length;
+    toast(`📥 ${count} ficheiro${count>1?'s':''} recebido${count>1?'s':''} — a carregar para a FamCloud...`);
+
+    // Converte de volta para File objects e faz upload
+    const files = items.map(item =>
+      new File([item.data], item.name, { type: item.type })
+    );
+    await uploadFiles(files);
+
+    // Limpa a fila do IndexedDB
+    const tx2 = db.transaction('pending', 'readwrite');
+    keys.forEach(k => tx2.objectStore('pending').delete(k));
+
+    // Limpa o ?shared=1 do URL sem reload
+    history.replaceState({}, '', location.pathname);
+  } catch(e) {
+    console.error('checkPendingShares:', e);
+  }
 }
 
 // iOS PWA: ao voltar ao primeiro plano, verifica se a sessão ainda é válida
