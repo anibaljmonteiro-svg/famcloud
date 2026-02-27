@@ -1408,6 +1408,7 @@ const S = {
   view: localStorage.getItem('fc_view') || 'grid',
   sort: JSON.parse(localStorage.getItem('fc_sort') || '{"by":"name","dir":"asc"}'),
   selected: new Set(), selecting: false,
+  loadAbort: null, // AbortController para cancelar PROPFIND anterior
   favorites: JSON.parse(localStorage.getItem('fc_favs') || '[]'),
   lastItems: [],
   dragItem: null,
@@ -1432,17 +1433,32 @@ const AE = ['mp3','aac','flac','wav','m4a','ogg','opus'];
 // Ex: https://famcloud.SEU-NOME.workers.dev
 const PROXY = localStorage.getItem('fc_proxy') || 'https://famcloud.famcloud.workers.dev';
 
-// ─── FETCH WRAPPER com intercept 401 ──────────────────────────────────────
-// Apanha sessões expiradas em qualquer chamada e tenta re-autenticar silenciosamente
+// ─── FETCH WRAPPER com intercept 401 e timeout ───────────────────────────
+// Apanha sessões expiradas e aplica timeout de 25s a pedidos WebDAV
 const _origFetch = window.fetch.bind(window);
 window.fetch = async (url, opts={}) => {
-  const r = await _origFetch(url, opts);
+  // Timeout de 25s em pedidos ao proxy (não em uploads — esses têm o seu próprio controlo)
+  let timeoutId;
+  const isUpload = opts.method === 'PUT' || opts.method === 'POST';
+  const isAborted = opts.signal;
+  if (!isUpload && !isAborted && typeof url === 'string' && url.includes(PROXY)) {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 25000);
+    opts = { ...opts, signal: controller.signal };
+  }
+  let r;
+  try {
+    r = await _origFetch(url, opts);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  if (!r) throw new Error('Timeout ou sem resposta');
   if (r.status === 401 && S.user && url.toString().includes(PROXY)) {
     // Tenta refresh silencioso com credenciais guardadas
     const saved = localStorage.getItem('fc_cred');
     if (saved) {
       try {
-        const d = JSON.parse(saved);
+        let d; try { d = JSON.parse(saved); } catch(e) { d = JSON.parse(deobfuscate(saved)); }
         S.user = d.user; S.pass = d.pass;
         // Retry o pedido original uma vez
         const r2 = await _origFetch(url, {
@@ -1529,7 +1545,19 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 // ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
 // <img src=""> não envia Authorization. Carregamos via fetch com auth → blob URL
+// LRU cache para thumbnails — max 150 entradas (evita memory leak em mobile)
+const _IMG_CACHE_MAX = 150;
 const _imgCache = new Map();
+function _imgCacheSet(key, val) {
+  if (_imgCache.size >= _IMG_CACHE_MAX) {
+    // Remove a entrada mais antiga (Map mantém ordem de inserção)
+    const oldest = _imgCache.keys().next().value;
+    const oldUrl = _imgCache.get(oldest);
+    try { URL.revokeObjectURL(oldUrl); } catch(e) {}
+    _imgCache.delete(oldest);
+  }
+  _imgCache.set(key, val);
+}
 // Gera URL de thumbnail nativo do Nextcloud
 function thumbUrl(fileid, size=256) {
   if (!fileid) return null;
@@ -1558,8 +1586,8 @@ async function authImg(el, url, fallbackUrl) {
         const blob2 = await r2.blob();
         if (blob2.type.startsWith('image/')) {
           const objUrl2 = URL.createObjectURL(blob2);
-          _imgCache.set(fallbackUrl, objUrl2);
-          _imgCache.set(cacheKey, objUrl2);
+          _imgCacheSet(fallbackUrl, objUrl2);
+          _imgCacheSet(cacheKey, objUrl2);
           el.src = objUrl2;
         }
       }
@@ -1570,6 +1598,10 @@ async function authImg(el, url, fallbackUrl) {
 
 const b64 = s => btoa(unescape(encodeURIComponent(s)));
 const auth = () => 'Basic ' + b64(S.user + ':' + S.pass);
+// Ofuscação de credenciais em storage (não é encriptação — impede leitura directa)
+const _salt = 'fc2026';
+const obfuscate = s => btoa(_salt + btoa(unescape(encodeURIComponent(s))));
+const deobfuscate = s => { try { const d = atob(s); return decodeURIComponent(escape(atob(d.slice(_salt.length)))); } catch(e) { return s; } };
 const dav = p => PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
 const ex = n => (n||'').split('.').pop().toLowerCase();
 const isImg = n => IE.includes(ex(n));
@@ -1577,6 +1609,8 @@ const isVid = n => VE.includes(ex(n));
 const isAud = n => AE.includes(ex(n));
 const isPdf = n => ex(n) === 'pdf';
 const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+// Sanitização HTML para uso em innerHTML (previne XSS via nomes de ficheiros)
+const hesc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function normPath(href) {
   return href
@@ -1687,7 +1721,8 @@ async function doLogin() {
     }
 
     if (loginOk) {
-      const _cred = JSON.stringify({server:S.server,user:S.user,pass:S.pass});
+      const _credRaw = JSON.stringify({server:S.server,user:S.user,pass:S.pass});
+      const _cred = obfuscate(_credRaw);
       sessionStorage.setItem('fc', _cred);
       localStorage.setItem('fc_cred', _cred);
       initApp();
@@ -1927,7 +1962,7 @@ async function loadTree(p, parentEl) {
       item.className = 'ti' + (S.path===d.path?' active':'');
       item.dataset.path = d.path;
       const isFav = S.favorites.some(f => f.path===d.path);
-      item.innerHTML = `<span class="ti-ic">📁</span><span class="ti-nm">${d.nm}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
+      item.innerHTML = `<span class="ti-ic">📁</span><span class="ti-nm">${hesc(d.nm)}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
       item.querySelector('.ti-star').addEventListener('click', e => { e.stopPropagation(); toggleFav(d.path, d.nm, e); });
       item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('drag-over'); });
       item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
@@ -1950,7 +1985,7 @@ async function loadTree(p, parentEl) {
 function mkTI(ic, nm, p2) {
   const el = document.createElement('div');
   el.className = 'ti' + (S.path===p2?' active':'');
-  el.innerHTML = `<span class="ti-ic">${ic}</span><span class="ti-nm">${nm}</span>`;
+  el.innerHTML = `<span class="ti-ic">${ic}</span><span class="ti-nm">${hesc(nm)}</span>`;
   el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
   el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
   el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drag-over'); handleDrop(p2); });
@@ -1973,11 +2008,16 @@ async function loadFiles(p) {
   S.path = p; clearSel(); updateBC(); updateTreeActive();
   document.getElementById('btn-back').style.display = p === '/' ? 'none' : 'flex';
   document.getElementById('fl').innerHTML = '<div class="loading"><div class="spin"></div> A carregar...</div>';
+  // Cancela pedido anterior se ainda estiver em curso
+  if (S.loadAbort) { S.loadAbort.abort(); }
+  S.loadAbort = new AbortController();
+  const signal = S.loadAbort.signal;
   try {
     const r = await fetch(dav(p), {
       method: 'PROPFIND',
       headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
-      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getcontentlength/><d:resourcetype/><d:getlastmodified/><d:creationdate/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getcontentlength/><d:resourcetype/><d:getlastmodified/><d:creationdate/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`,
+      signal
     });
     if (!r.ok && r.status === 401) {
       // Retry once — Netlify proxy sometimes drops Authorization on first request
@@ -2021,8 +2061,13 @@ async function loadFiles(p) {
       if (isDir) folders.push(obj); else files.push(obj);
     });
     S.lastItems = [...sortItems(folders), ...sortItems(files)];
+    // Aviso se próximo do limite do PROPFIND (Nextcloud limita ~500 itens)
+    if (S.lastItems.length >= 490) {
+      toast(`⚠️ Esta pasta tem ${S.lastItems.length}+ itens. Podem não aparecer todos.`, 'err');
+    }
     renderFiles(S.lastItems);
   } catch(e) {
+    if (e.name === 'AbortError') return; // Navegação cancelada — normal
     document.getElementById('fl').innerHTML = `<div class="empty"><div class="ei">⚠️</div><h3>Erro ao carregar</h3><p>${e.message}</p></div>`;
   }
 }
@@ -2431,8 +2476,16 @@ async function uploadFiles(fl) {
         };
         xhr.onload = () => resolve(xhr.status < 400);
         xhr.onerror = () => resolve(false);
-        xhr.onabort = () => resolve(null); // null = cancelado
-        xhr.open('PUT', dav(destPath));
+        xhr.onabort = () => resolve(null);
+        // Ficheiros > 50MB: upload directo ao Nextcloud (bypass Cloudflare 30s timeout)
+        const LARGE = 50 * 1024 * 1024;
+        const uploadUrl = f.size > LARGE
+          ? NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + destPath
+          : dav(destPath);
+        if (f.size > LARGE && attempt === 0) {
+          document.getElementById('uprog-file').textContent = `📡 Directo: ${i+1}/${files.length}: ${f.name}`;
+        }
+        xhr.open('PUT', uploadUrl);
         xhr.setRequestHeader('Authorization', auth());
         xhr.send(f);
       });
@@ -2536,7 +2589,7 @@ async function openMoveModal(paths, names) {
       }
     });
     dirs.sort((a,b)=>a.nm.localeCompare(b.nm));
-    dirs.forEach(d => { sel.innerHTML += `<option value="${d.path}">📁 ${d.nm}</option>`; });
+    dirs.forEach(d => { sel.innerHTML += `<option value="${d.path}">📁 ${hesc(d.nm)}</option>`; });
   } catch(e) {}
   showM('move');
 }
@@ -3967,15 +4020,19 @@ window.addEventListener('load', () => {
 
 function restoreSession() {
   // sessionStorage (tab) → localStorage (PWA persistent) → show login
-  const s = sessionStorage.getItem('fc') || localStorage.getItem('fc_cred');
-  if (s) {
+  const raw = sessionStorage.getItem('fc') || localStorage.getItem('fc_cred');
+  if (raw) {
     try {
-      const d = JSON.parse(s);
-      if (d.user && d.pass) {
-        S.server = PROXY; S.user = d.user; S.pass = d.pass;
-        sessionStorage.setItem('fc', s);
+      // Suporta formato antigo (JSON directo) e novo (ofuscado)
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch(e) { parsed = JSON.parse(deobfuscate(raw)); }
+      if (parsed && parsed.user && parsed.pass) {
+        S.server = PROXY; S.user = parsed.user; S.pass = parsed.pass;
+        // Migra para formato ofuscado se ainda não estava
+        const reobf = obfuscate(JSON.stringify(parsed));
+        sessionStorage.setItem('fc', reobf);
+        localStorage.setItem('fc_cred', reobf);
         initApp();
-        // Verifica se há ficheiros partilhados pelo Android share target
         if (new URLSearchParams(location.search).get('shared') === '1') {
           setTimeout(checkPendingShares, 1200);
         }

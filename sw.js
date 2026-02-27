@@ -1,4 +1,4 @@
-const CACHE = 'famcloud-v18';
+const CACHE = 'famcloud-v19';
 const BASE = '/famcloud';
 const ASSETS = [
   BASE + '/',
@@ -41,15 +41,30 @@ self.addEventListener('fetch', e => {
   }
 
   if (e.request.method === 'GET') {
-    e.respondWith(
-      caches.match(e.request).then(cached => {
-        const network = fetch(e.request).then(res => {
+    const reqUrl = new URL(e.request.url);
+    const isHtml = reqUrl.pathname.endsWith('/') || reqUrl.pathname.endsWith('.html');
+
+    if (isHtml) {
+      // index.html — network-first: garante código sempre actualizado
+      // Fallback para cache se offline
+      e.respondWith(
+        fetch(e.request).then(res => {
           if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
           return res;
-        }).catch(() => cached);
-        return cached || network;
-      })
-    );
+        }).catch(() => caches.match(e.request))
+      );
+    } else {
+      // Assets (icons, manifest) — cache-first: mais rápido
+      e.respondWith(
+        caches.match(e.request).then(cached => {
+          const network = fetch(e.request).then(res => {
+            if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+            return res;
+          }).catch(() => cached);
+          return cached || network;
+        })
+      );
+    }
   }
 });
 
