@@ -641,6 +641,14 @@ body {
 .toast.ok { background:var(--green); color:#fff; }
 .toast.err { background:var(--red); color:#fff; }
 
+/* ── SIDEBAR OVERLAY (mobile) ── */
+.sb-overlay {
+  display:none; position:fixed; inset:0; z-index:98;
+  background:rgba(0,0,0,.35); backdrop-filter:blur(2px);
+  -webkit-backdrop-filter:blur(2px);
+}
+.sb-overlay.show { display:block; }
+
 /* ── RESPONSIVE ── */
 @media(max-width:700px) {
   .sidebar { position:fixed; top:0; left:0; bottom:0; z-index:99; box-shadow:4px 0 24px rgba(0,0,0,.2); }
@@ -916,7 +924,9 @@ body {
       <div class="tree-wrap"><div id="tree"></div></div>
     </div>
 
-    <!-- MAIN -->
+    <!-- SIDEBAR OVERLAY -->
+  <div class="sb-overlay" id="sb-overlay" onclick="closeSB()"></div>
+  <!-- MAIN -->
     <div class="main" id="main">
       <div class="toolbar">
         <button class="btn btn-g" id="btn-back" onclick="goBack()" style="display:none">← Voltar</button>
@@ -1376,6 +1386,67 @@ window.fetch = async (url, opts={}) => {
 const NC = 'https://nx91769.your-storageshare.de';
 // Encoding seguro para nomes de ficheiros portugueses (acentos, espaços, etc.)
 const safeName = n => encodeURIComponent(n).replace(/%20/g,' ');
+const isMobile = () => window.innerWidth <= 700 || 'ontouchstart' in window;
+
+// ── MOVE com gestão de duplicados ───────────────────────────────────────────
+// Retorna: 'ok' | 'skip' | 'error'
+async function moveItem(src, destDir, options={}) {
+  // options: { overwrite: false, autoRename: false }
+  const srcNm = src.replace(/\/$/, '').split('/').pop();
+  const destUrl = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + destDir + encodeURIComponent(srcNm);
+  const overwriteH = options.overwrite ? 'T' : 'F';
+
+  const r = await fetch(dav(src), {
+    method: 'MOVE',
+    headers: { 'Authorization': auth(), 'Destination': destUrl, 'Overwrite': overwriteH }
+  });
+
+  if (r.ok || r.status === 201 || r.status === 204) return { status: 'ok', name: srcNm };
+
+  if (r.status === 412) {
+    // Conflito — ficheiro já existe no destino
+    if (options.overwrite) return { status: 'error', name: srcNm, code: 412 };
+
+    if (options.autoRename) {
+      // Gera nome único: foto.jpg → foto (2).jpg
+      const newNm = await autoRename(srcNm, destDir);
+      const destUrl2 = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + destDir + encodeURIComponent(newNm);
+      const r2 = await fetch(dav(src), {
+        method: 'MOVE',
+        headers: { 'Authorization': auth(), 'Destination': destUrl2, 'Overwrite': 'F' }
+      });
+      if (r2.ok || r2.status === 201 || r2.status === 204) return { status: 'ok', name: newNm, renamed: true };
+      return { status: 'error', name: srcNm, code: r2.status };
+    }
+
+    return { status: 'duplicate', name: srcNm, destUrl };
+  }
+
+  return { status: 'error', name: srcNm, code: r.status };
+}
+
+async function autoRename(name, destDir) {
+  // Verifica quais nomes existem no destino e gera um único
+  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+  const base = ext ? name.slice(0, -(ext.length)) : name;
+  let n = 2, candidate = name;
+  // Lista o destino para ver o que existe
+  try {
+    const r = await fetch(dav(destDir), {
+      method: 'PROPFIND',
+      headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
+      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>'
+    });
+    if (r.ok) {
+      const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+      const existing = new Set([...xml.querySelectorAll('displayname')].map(el => el.textContent));
+      while (existing.has(candidate)) { candidate = `${base} (${n++})${ext}`; }
+    }
+  } catch(e) {
+    candidate = `${base} (${Date.now()})${ext}`;
+  }
+  return candidate;
+}
 const davDest = p => NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
 const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.user) + p;
 
@@ -1921,6 +1992,16 @@ function setV(v, save=true) {
 function toggleSB() {
   S.sidebarOpen = !S.sidebarOpen;
   document.getElementById('sb').classList.toggle('closed', !S.sidebarOpen);
+  // Mobile overlay
+  if (window.innerWidth <= 700) {
+    document.getElementById('sb-overlay').classList.toggle('show', S.sidebarOpen);
+  }
+}
+
+function closeSB() {
+  S.sidebarOpen = false;
+  document.getElementById('sb').classList.add('closed');
+  document.getElementById('sb-overlay').classList.remove('show');
 }
 
 // ─── RENDER GRID/LIST ─────────────────────────────────────────────────────────
@@ -1972,10 +2053,10 @@ function card(it) {
     onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
     oncontextmenu="event.preventDefault();enterSel('${sp}')"
     ontouchstart="tStart(event,'${sp}')" ontouchend="tEnd()"
-    draggable="true"
-    ondragstart="dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="dEnd(event)"
-    ${isDir?`ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')"`:''}>
+    draggable="${isMobile()?'false':'true'}"
+    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
     <div class="fc-chk" onclick="event.stopPropagation();enterOrToggleSel('${sp}')">✓</div>
     <div class="fac">
       ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();dlF('${sp}','${sn}')" title="Download">⬇️</button>`:''}
@@ -2004,10 +2085,10 @@ function row(it) {
   return `<div class="lr${sel?' selected':''}" data-path="${p}"
     onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
     oncontextmenu="event.preventDefault();enterSel('${sp}')"
-    draggable="true"
-    ondragstart="dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="dEnd(event)"
-    ${isDir?`ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')"`:''}>
+    draggable="${isMobile()?'false':'true'}"
+    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
     <div class="lr-n"><div class="lr-chk">${sel?'✓':''}</div>${isDir?'📁':fIcon(nm)}<span>${nm}</span></div>
     <div class="lr-s">${sz}</div>
     <div class="lr-d">${dateStr||'-'}</div>
@@ -2131,9 +2212,20 @@ function bulkMoveOpen() {
 
 // ─── DRAG & DROP ─────────────────────────────────────────────────────────────
 function dStart(e, p, nm, isDir) {
+  if (isMobile()) { e.preventDefault(); return; }
   S.dragItem = {p, nm, isDir};
   e.dataTransfer.effectAllowed = 'move';
-  setTimeout(() => e.target.classList.add('dragging'), 0);
+  // Drag image limpa — só o ícone do ficheiro, sem distorções
+  try {
+    const ghost = document.createElement('div');
+    ghost.style.cssText = 'position:fixed;top:-200px;left:-200px;padding:8px 14px;background:var(--card);border:2px solid var(--primary);border-radius:10px;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.2);';
+    ghost.textContent = (isDir ? '📁 ' : '📄 ') + nm;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 20, 20);
+    setTimeout(() => { document.body.removeChild(ghost); e.target.classList.add('dragging'); }, 0);
+  } catch(_) {
+    setTimeout(() => e.target.classList.add('dragging'), 0);
+  }
 }
 function dEnd(e) {
   e.target.classList.remove('dragging');
@@ -2147,14 +2239,28 @@ async function handleDrop(destPath) {
   const dest = destPath.endsWith('/') ? destPath : destPath + '/';
   const srcParent = src.replace(/\/$/,'').substring(0, src.replace(/\/$/,'').lastIndexOf('/')+1);
   if (srcParent === dest || src === dest) { toast('Já está nessa pasta.'); S.dragItem=null; return; }
+  const destFolderNm = dest.split('/').filter(Boolean).pop() || 'Início';
   const srcNm = src.replace(/\/$/,'').split('/').pop();
-  const destUrl = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + dest + encodeURIComponent(srcNm);
   try {
-    const r = await fetch(dav(src), { method:'MOVE', headers:{'Authorization':auth(),'Destination':destUrl,'Overwrite':'F'} });
-    if (r.ok || r.status===201 || r.status===204) {
-      toast(`"${srcNm}" movido para "${dest.split('/').filter(Boolean).pop() || 'Início'}"!`, 'ok');
+    const result = await moveItem(src, dest);
+    if (result.status === 'ok') {
+      const msg = result.renamed ? `"${srcNm}" renomeado para "${result.name}" e movido.` : `"${srcNm}" movido para "${destFolderNm}"!`;
+      toast(msg, 'ok');
       loadFiles(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
-    } else { toast('Erro ao mover (' + r.status + ')', 'err'); }
+    } else if (result.status === 'duplicate') {
+      // Pergunta o que fazer
+      const choice = confirm(`"${srcNm}" já existe em "${destFolderNm}".\n\nOK = Substituir\nCancelar = Manter os dois (renomeia automaticamente)`);
+      const result2 = await moveItem(src, dest, { overwrite: choice, autoRename: !choice });
+      if (result2.status === 'ok') {
+        const msg = result2.renamed ? `"${srcNm}" guardado como "${result2.name}".` : `"${srcNm}" substituído em "${destFolderNm}".`;
+        toast(msg, 'ok');
+        loadFiles(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
+      } else {
+        toast(`Erro ao mover "${srcNm}" (${result2.code})`, 'err');
+      }
+    } else {
+      toast(`Erro ao mover "${srcNm}" (${result.code})`, 'err');
+    }
   } catch(e) { toast('Erro ao mover', 'err'); }
   S.dragItem = null;
 }
@@ -2171,7 +2277,11 @@ dzEl.addEventListener('drop', e => {
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 function navTo(p) { S.hist.push(S.path); loadFiles(p); }
-function openDir(p) { S.hist.push(S.path); loadFiles(p.endsWith('/') ? p : p+'/'); }
+function openDir(p) {
+  S.hist.push(S.path); loadFiles(p.endsWith('/') ? p : p+'/');
+  // Fecha sidebar ao navegar no mobile
+  if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
+}
 function goBack() { if (S.hist.length) loadFiles(S.hist.pop()); }
 function goHome() { S.hist = []; loadFiles('/'); }
 function jumpTo(p) { S.hist.push(S.path); loadFiles(p); }
@@ -2358,17 +2468,36 @@ async function openMoveModal(paths, names) {
 async function doMove() {
   const dest = document.getElementById('move-sel').value;
   const destNm = dest==='/' ? 'Início' : dest.split('/').filter(Boolean).pop();
-  let ok = 0;
+  let moved = 0, duplicates = [], errors = 0;
+
+  // Primeira passagem — tenta mover todos
   for (const src of S.moveTargets) {
-    const srcNm = src.replace(/\/$/,'').split('/').pop();
-    const destUrl = NC+'/remote.php/dav/files/'+encodeURIComponent(S.user)+dest+encodeURIComponent(srcNm);
     try {
-      const r = await fetch(dav(src), { method:'MOVE', headers:{'Authorization':auth(),'Destination':destUrl,'Overwrite':'F'} });
-      if (r.ok || r.status===201 || r.status===204) ok++;
-      else toast('Erro ao mover "'+srcNm+'" ('+r.status+')', 'err');
-    } catch(e) { toast('Erro ao mover "'+srcNm+'"', 'err'); }
+      const result = await moveItem(src, dest);
+      if (result.status === 'ok') moved++;
+      else if (result.status === 'duplicate') duplicates.push(src);
+      else errors++;
+    } catch(e) { errors++; }
   }
-  if (ok) toast(`${ok} item(ns) movido(s) para "${destNm}"!`, 'ok');
+
+  // Trata duplicados se existirem
+  if (duplicates.length > 0) {
+    const nms = duplicates.map(s => s.replace(/\/$/, '').split('/').pop()).join(', ');
+    const choice = confirm(`${duplicates.length} ficheiro${duplicates.length>1?'s':''} já exist${duplicates.length>1?'em':'e'} em "${destNm}":\n${nms}\n\nOK = Substituir\nCancelar = Manter os dois (renomeia automaticamente)`);
+    for (const src of duplicates) {
+      try {
+        const result2 = await moveItem(src, dest, { overwrite: choice, autoRename: !choice });
+        if (result2.status === 'ok') moved++;
+        else errors++;
+      } catch(e) { errors++; }
+    }
+  }
+
+  // Feedback final
+  if (errors && moved === 0) toast(`❌ Erro ao mover. Tenta novamente.`, 'err');
+  else if (errors) toast(`⚠️ ${moved} movido${moved>1?'s':''}, ${errors} com erro.`, 'err');
+  else toast(`✅ ${moved} item${moved>1?'ns':''} movido${moved>1?'s':''} para "${destNm}"!`, 'ok');
+
   hideM('move'); clearSel(); loadFiles(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
 }
 
