@@ -1,4 +1,4 @@
-const CACHE = 'famcloud-v17';
+const CACHE = 'famcloud-v18';
 const BASE = '/famcloud';
 const ASSETS = [
   BASE + '/',
@@ -21,8 +21,15 @@ self.addEventListener('activate', e => {
   );
 });
 
+// ── SHARE TARGET — intercept POST de ficheiros partilhados do Android ────────
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+
+  // Intercepta o share target POST
+  if (e.request.method === 'POST' && url.pathname === BASE + '/share-target') {
+    e.respondWith(handleShareTarget(e.request));
+    return;
+  }
 
   // Nunca interceptar chamadas ao proxy/Nextcloud
   if (url.hostname.includes('workers.dev') ||
@@ -45,3 +52,41 @@ self.addEventListener('fetch', e => {
     );
   }
 });
+
+async function handleShareTarget(request) {
+  try {
+    const formData = await request.formData();
+    const files = formData.getAll('media');
+
+    if (files && files.length > 0) {
+      // Guarda os ficheiros em cache IndexedDB para a app os ir buscar
+      const db = await openShareDB();
+      const tx = db.transaction('pending', 'readwrite');
+      const store = tx.objectStore('pending');
+
+      for (const file of files) {
+        if (file instanceof File) {
+          const buf = await file.arrayBuffer();
+          store.add({ name: file.name, type: file.type, data: buf, ts: Date.now() });
+        }
+      }
+      await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
+    }
+  } catch(e) {
+    console.error('Share target error:', e);
+  }
+
+  // Redireciona para a app — ela vai detectar os ficheiros pendentes
+  return Response.redirect(BASE + '/?shared=1', 303);
+}
+
+function openShareDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('famcloud-share', 1);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore('pending', { autoIncrement: true });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+}
