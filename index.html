@@ -665,6 +665,56 @@ body {
 /* Hidden file inputs */
 #ufi, #folder-ufi, #av-input, #cam-input { display:none; }
 
+/* ── FAB UPLOAD (mobile) ─────────────────────────────────────────────────── */
+.fab-wrap {
+  display: none;
+  position: fixed; bottom: calc(68px + env(safe-area-inset-bottom, 0px) + 12px);
+  right: 16px; z-index: 200;
+  flex-direction: column-reverse; align-items: flex-end; gap: 10px;
+}
+@media(max-width:700px) { .fab-wrap { display: flex; } }
+
+.fab-main {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--gradient); color: var(--primary-text);
+  border: none; font-size: 26px; cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,.25), 0 2px 8px rgba(0,0,0,.15);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .2s, box-shadow .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.fab-main:active { transform: scale(.92); }
+.fab-main.open { transform: rotate(45deg); }
+
+.fab-menu {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 8px; opacity: 0; pointer-events: none;
+  transform: translateY(12px) scale(.95);
+  transition: opacity .2s, transform .2s;
+}
+.fab-menu.show { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+
+.fab-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 24px; padding: 10px 16px 10px 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.15);
+  cursor: pointer; white-space: nowrap;
+  font-family: var(--font); font-size: 14px; font-weight: 600;
+  color: var(--text); -webkit-tap-highlight-color: transparent;
+  transition: background .15s, transform .1s;
+}
+.fab-item:active { transform: scale(.96); background: var(--bg2); }
+.fab-item .fi-ic { font-size: 20px; }
+.fab-item .fi-lbl { line-height: 1; }
+.fab-item .fi-sub { font-size: 11px; font-weight: 400; color: var(--text2); display: block; margin-top: 1px; }
+
+.fab-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 199;
+}
+.fab-backdrop.show { display: block; }
+
+
 /* ═══════════════════════════════════════
    BOTTOM NAV TABS
 ═══════════════════════════════════════ */
@@ -952,8 +1002,34 @@ body {
       <input type="file" id="ufi" multiple onchange="uploadFiles(this.files)">
       <input type="file" id="folder-ufi" multiple webkitdirectory onchange="uploadFiles(this.files)">
       <input type="file" id="cam-input" accept="image/*,video/*" capture="environment" onchange="uploadFiles(this.files)">
+      <input type="file" id="gallery-input" multiple accept="image/*,video/*" onchange="uploadFiles(this.files)">
+      <input type="file" id="doc-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp3,.aac" onchange="uploadFiles(this.files)">
       <div id="fl"></div>
     </div>
+
+  <!-- FAB UPLOAD (mobile) -->
+  <div class="fab-backdrop" id="fab-bd" onclick="closeFab()"></div>
+  <div class="fab-wrap" id="fab-wrap">
+    <button class="fab-main" id="fab-main" onclick="toggleFab()">＋</button>
+    <div class="fab-menu" id="fab-menu">
+      <div class="fab-item" onclick="closeFab();document.getElementById('gallery-input').click()">
+        <span class="fi-ic">🖼️</span>
+        <span class="fi-lbl">Galeria<span class="fi-sub">Fotos e vídeos</span></span>
+      </div>
+      <div class="fab-item" onclick="closeFab();document.getElementById('cam-input').click()">
+        <span class="fi-ic">📷</span>
+        <span class="fi-lbl">Câmara<span class="fi-sub">Tirar foto agora</span></span>
+      </div>
+      <div class="fab-item" onclick="closeFab();document.getElementById('doc-input').click()">
+        <span class="fi-ic">📄</span>
+        <span class="fi-lbl">Documentos<span class="fi-sub">PDF, Word, Excel...</span></span>
+      </div>
+      <div class="fab-item" onclick="closeFab();document.getElementById('ufi').click()">
+        <span class="fi-ic">📂</span>
+        <span class="fi-lbl">Qualquer ficheiro<span class="fi-sub">Todos os tipos</span></span>
+      </div>
+    </div>
+  </div>
   </div><!-- app-body -->
   </div><!-- sec-files -->
 
@@ -3866,6 +3942,22 @@ function clearTagFilter() {
 }
 
 // ─── SESSION RESTORE ──────────────────────────────────────────────────────────
+
+// ── FAB UPLOAD ────────────────────────────────────────────────────────────────
+function toggleFab() {
+  const menu = document.getElementById('fab-menu');
+  const btn  = document.getElementById('fab-main');
+  const bd   = document.getElementById('fab-bd');
+  const open = menu.classList.toggle('show');
+  btn.classList.toggle('open', open);
+  bd.classList.toggle('show', open);
+}
+function closeFab() {
+  document.getElementById('fab-menu').classList.remove('show');
+  document.getElementById('fab-main').classList.remove('open');
+  document.getElementById('fab-bd').classList.remove('show');
+}
+
 window.addEventListener('load', () => {
   applyTheme(currentTheme);
   renderThemeDots();
