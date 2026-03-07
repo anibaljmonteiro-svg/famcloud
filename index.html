@@ -1762,6 +1762,8 @@ function initApp() {
   // Reset tabs (important on re-login)
   calLoaded = false; notesLoaded = false; wxLoaded = false;
   switchTab('files');
+  // Verifica uploads pendentes de sessão anterior
+  setTimeout(checkUploadQueue, 2000);
 }
 
 function doLogout() {
@@ -2304,7 +2306,7 @@ async function bulkDelete() {
   const paths = [...S.selected];
   if (!paths.length) return;
   const names = S.lastItems.filter(it=>paths.includes(it.path)).map(it=>it.name);
-  if (!confirm(`Apagar ${paths.length} item${paths.length>1?'ns':''}?\n${names.slice(0,5).join('\n')}${names.length>5?'\n+' +(names.length-5)+' mais':''}`)) return;
+  if (!confirm(`Apagar PERMANENTEMENTE ${paths.length} item${paths.length>1?'ns':''}?\n${names.slice(0,5).join('\n')}${names.length>5?'\n+' +(names.length-5)+' mais':''}\n\nEsta acção é irreversível.`)) return;
   let done = 0, errors = 0;
   toast(`🗑️ A apagar ${paths.length} item${paths.length>1?'ns':''}...`);
   for (const p of paths) {
@@ -2457,6 +2459,9 @@ async function uploadFiles(fl) {
       destDir = cur;
     }
     const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/').replace(/'/g,'%27');
+    // Regista na fila persistente antes de enviar
+    let queueId = null;
+    try { queueId = await UQ.add(f, destPath); } catch(e) {}
     const fileStart = Date.now();
     // Retry até 3 vezes com backoff exponencial
     let uploaded = false;
@@ -2492,7 +2497,10 @@ async function uploadFiles(fl) {
       if (ok === null) break; // cancelado
       if (ok) { uploaded = true; } else if (attempt === 2) { errors++; }
     }
-    if (uploaded) sentBytes += f.size;
+    if (uploaded) {
+      sentBytes += f.size;
+      if (queueId) { try { await UQ.setStatus(queueId, 'done'); } catch(e) {} }
+    }
     done++;
   }
   document.getElementById('uprog-bar').style.width = '100%';
@@ -2507,7 +2515,11 @@ async function uploadFiles(fl) {
   } else {
     toast('Upload cancelado.', '');
   }
-  ['ufi','folder-ufi','cam-input'].forEach(id => { document.getElementById(id).value=''; });
+  ['ufi','folder-ufi','cam-input','gallery-input','doc-input'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  // Limpa entradas concluídas da fila
+  try { await UQ.clearDone(); } catch(e) {}
 }
 
 // ─── DOWNLOAD ─────────────────────────────────────────────────────────────────
@@ -2525,10 +2537,10 @@ async function dlF(p, nm) {
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 async function delIt(p, nm) {
-  if (!confirm(`Mover "${nm}" para o lixo?`)) return;
+  if (!confirm(`Apagar "${nm}" permanentemente?\n\nEsta acção é irreversível.`)) return;
   try {
     const r = await fetch(dav(p), { method:'DELETE', headers:{'Authorization':auth()} });
-    if (r.ok || r.status===204) { toast(nm + ' movido para o lixo.', 'ok'); loadFiles(S.path); loadStorage(); }
+    if (r.ok || r.status===204) { toast('"' + nm + '" apagado.', 'ok'); loadFiles(S.path); loadStorage(); }
     else toast('Erro ao apagar (' + r.status + ')', 'err');
   } catch(e) { toast('Erro ao apagar', 'err'); }
 }
@@ -4009,6 +4021,114 @@ function closeFab() {
   document.getElementById('fab-menu').classList.remove('show');
   document.getElementById('fab-main').classList.remove('open');
   document.getElementById('fab-bd').classList.remove('show');
+}
+
+
+// ── UPLOAD QUEUE PERSISTENTE (IndexedDB) ─────────────────────────────────────
+const UQ = {
+  db: null,
+
+  async open() {
+    if (this.db) return this.db;
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('famcloud-uq', 1);
+      r.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('queue')) {
+          const s = db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('status', 'status');
+        }
+      };
+      r.onsuccess = e => { this.db = e.target.result; res(this.db); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+
+  async add(file, destPath) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('queue', 'readwrite');
+      const req = tx.objectStore('queue').add({
+        name: file.name, type: file.type, size: file.size,
+        destPath, status: 'pending', ts: Date.now()
+      });
+      req.onsuccess = () => res(req.result); // returns id
+      req.onerror = () => rej(req.error);
+    });
+  },
+
+  async setStatus(id, status) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('queue', 'readwrite');
+      const store = tx.objectStore('queue');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const item = getReq.result;
+        if (item) { item.status = status; store.put(item); }
+        res();
+      };
+      getReq.onerror = () => rej(getReq.error);
+    });
+  },
+
+  async getPending() {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('queue', 'readonly');
+      const req = tx.objectStore('queue').index('status').getAll('pending');
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => rej(req.error);
+    });
+  },
+
+  async clearDone() {
+    const db = await this.open();
+    return new Promise((res) => {
+      const tx = db.transaction('queue', 'readwrite');
+      const store = tx.objectStore('queue');
+      const req = store.index('status').openCursor(IDBKeyRange.only('done'));
+      req.onsuccess = e => {
+        const cursor = e.target.result;
+        if (cursor) { cursor.delete(); cursor.continue(); } else res();
+      };
+      req.onerror = () => res();
+    });
+  },
+
+  async clearAll() {
+    const db = await this.open();
+    return new Promise(res => {
+      const tx = db.transaction('queue', 'readwrite');
+      tx.objectStore('queue').clear();
+      tx.oncomplete = res;
+    });
+  }
+};
+
+// Verifica pendentes ao arrancar (após login)
+async function checkUploadQueue() {
+  try {
+    const pending = await UQ.getPending();
+    if (!pending.length) return;
+    const msg = pending.length === 1
+      ? `Tens 1 upload por concluir: "${pending[0].name}".\nContinuar?`
+      : `Tens ${pending.length} uploads por concluir.\nContinuar?`;
+    if (confirm(msg)) {
+      toast(`⏳ A retomar ${pending.length} upload${pending.length>1?'s':''}...`);
+      // Não temos os File objects — só os metadados
+      // Mostra lista e pede ao utilizador para re-seleccionar
+      showResumeModal(pending);
+    } else {
+      await UQ.clearAll();
+    }
+  } catch(e) {}
+}
+
+function showResumeModal(pending) {
+  const names = pending.map(p => `• ${p.name} (${fmtSz(p.size)}) → ${p.destPath.split('/').filter(Boolean).pop()||'Início'}`).join('\n');
+  alert(`Ficheiros por carregar:\n\n${names}\n\nSelecciona-os novamente no botão ＋ para continuar.`);
+  UQ.clearAll();
 }
 
 window.addEventListener('load', () => {
