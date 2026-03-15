@@ -5,7 +5,6 @@ import './styles/main.css'
 // Deploy: GitHub Pages → Cloudflare Worker → Nextcloud Hetzner
 
 
-'use strict';
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 const THEMES = {
