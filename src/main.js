@@ -898,7 +898,7 @@ function renderFiles(items) {
     });
   });
   // Mostra botão slideshow se há imagens
-  const hasImgs = items.some(it => !it.isDir && isImg(it.name));
+  const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
   if (ssBtn) ssBtn.style.display = hasImgs ? '' : 'none';
 }
@@ -1838,11 +1838,11 @@ function closeGallery() {
 }
 
 // ─── SLIDESHOW ────────────────────────────────────────────────────────────────
-const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false };
+const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false, isVideo:false };
 
 function startSlideshowFromFolder() {
-  SS.items = S.lastItems.filter(it => !it.isDir && isImg(it.name));
-  if (!SS.items.length) { toast('Sem fotos nesta pasta.', 'err'); return; }
+  SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
+  if (!SS.items.length) { toast('Sem fotos ou vídeos nesta pasta.', 'err'); return; }
   SS.idx = 0; SS.paused = false;
   document.getElementById('slideshow-ov').classList.add('show');
   const el = document.getElementById('slideshow-ov');
@@ -1852,8 +1852,8 @@ function startSlideshowFromFolder() {
 }
 
 function startSlideshow() {
-  SS.items = S.galleryItems.filter(it => isImg(it.name));
-  if (!SS.items.length) { toast('Sem imagens para slideshow.', 'err'); return; }
+  SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
+  if (!SS.items.length) { toast('Sem fotos ou vídeos para slideshow.', 'err'); return; }
   SS.idx = S.galleryIdx || 0;
   SS.paused = false;
   closeGallery();
@@ -1868,18 +1868,64 @@ function ssShow() {
   const it = SS.items[SS.idx];
   if (!it) return;
   const img = document.getElementById('ss-img');
-  img.classList.add('fade');
-  setTimeout(() => {
-    authImg(img, dav(it.path));
-    img.onload = () => img.classList.remove('fade');
-    img.onerror = () => { img.classList.remove('fade'); ssNext(); };
-  }, 400);
+  const vid = document.getElementById('ss-vid');
+  SS.isVideo = isVid(it.name);
+
   document.getElementById('ss-counter').textContent = (SS.idx+1) + ' / ' + SS.items.length;
   document.getElementById('ss-title').textContent = it.name;
-  document.getElementById('ss-sub').textContent = it.dateStr || '';
+  document.getElementById('ss-sub').textContent = (SS.isVideo ? '🎬 ' : '🖼️ ') + (it.dateStr || '');
+
   const prog = document.getElementById('ss-prog');
   prog.style.transition = 'none'; prog.style.width = '0%';
-  setTimeout(() => { prog.style.transition = `width ${SS.speed}ms linear`; prog.style.width = '100%'; }, 50);
+
+  if (SS.isVideo) {
+    // Mostrar vídeo, esconder imagem
+    img.style.display = 'none';
+    vid.style.display = 'block';
+    vid.style.opacity = '0';
+    vid.pause();
+    vid.src = '';
+    // Carregar vídeo directamente do Nextcloud com auth
+    fetch(NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + it.path, {
+      headers: { 'Authorization': auth() }
+    }).then(r => r.blob()).then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      vid.src = blobUrl;
+      vid.style.opacity = '1';
+      vid.play().catch(() => {});
+      // Quando o vídeo termina, avança automaticamente
+      vid.onended = () => {
+        URL.revokeObjectURL(blobUrl);
+        if (!SS.paused) ssNext();
+      };
+      // Barra de progresso baseada na duração do vídeo
+      vid.onloadedmetadata = () => {
+        const dur = vid.duration * 1000 || SS.speed;
+        prog.style.transition = `width ${dur}ms linear`;
+        prog.style.width = '100%';
+      };
+    }).catch(() => ssNext());
+    // Sem interval para vídeos — avança quando termina
+    if (SS.interval) { clearInterval(SS.interval); SS.interval = null; }
+  } else {
+    // Mostrar imagem, esconder vídeo
+    vid.style.display = 'none';
+    vid.pause(); vid.src = '';
+    img.style.display = 'block';
+    img.classList.add('fade');
+    setTimeout(() => {
+      authImg(img, dav(it.path));
+      img.onload = () => img.classList.remove('fade');
+      img.onerror = () => { img.classList.remove('fade'); ssNext(); };
+    }, 300);
+    // Barra de progresso normal para fotos
+    setTimeout(() => {
+      prog.style.transition = `width ${SS.speed}ms linear`;
+      prog.style.width = '100%';
+    }, 50);
+    // Reactiva interval para fotos
+    ssPlay();
+  }
 }
 
 function ssPlay() {
@@ -1888,6 +1934,9 @@ function ssPlay() {
 }
 
 function ssNext() {
+  // Limpa vídeo actual se existir
+  const vid = document.getElementById('ss-vid');
+  if (vid && vid.src) { vid.pause(); URL.revokeObjectURL(vid.src); vid.src = ''; }
   SS.idx = (SS.idx + 1) % SS.items.length;
   ssShow();
 }
@@ -1923,6 +1972,8 @@ function ssInfo() {
 
 function closeSlideshow() {
   clearInterval(SS.interval); SS.interval = null;
+  const vid = document.getElementById('ss-vid');
+  if (vid) { vid.pause(); if (vid.src) { URL.revokeObjectURL(vid.src); vid.src = ''; } }
   document.getElementById('slideshow-ov').classList.remove('show');
   if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
   else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
@@ -2038,7 +2089,8 @@ function openMedia(p, nm) {
   document.body.appendChild(overlay);
 
   // Fetch com auth e criar blob URL — resolve CORS e auth
-  fetch(NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p, {
+  // Vídeos passam pelo Worker (CORS impede fetch directo ao NC)
+  fetch(dav(p), {
     headers: { 'Authorization': auth() }
   }).then(r => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
