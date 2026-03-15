@@ -2019,10 +2019,22 @@ function openMedia(p, nm) {
   // Usa URL directa com Basic Auth via fetch + blob URL para evitar CORS
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
-  overlay.innerHTML = `
-    <div style="color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center">${nm}</div>
-    <div id="media-loading" style="color:rgba(255,255,255,.6);font-size:13px">⏳ A carregar...</div>
-    <button onclick="this.closest('div[style]').remove()" style="padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer">✕ Fechar</button>`;
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center';
+  titleEl.textContent = nm;
+  const loadingEl = document.createElement('div');
+  loadingEl.id = 'media-loading';
+  loadingEl.style.cssText = 'color:rgba(255,255,255,.6);font-size:13px';
+  loadingEl.textContent = '⏳ A carregar...';
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer';
+  closeBtn.textContent = '✕ Fechar';
+  closeBtn.onclick = () => { overlay.remove(); };
+  overlay.appendChild(titleEl);
+  overlay.appendChild(loadingEl);
+  overlay.appendChild(closeBtn);
+  // Tap background to close
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
   document.body.appendChild(overlay);
 
   // Fetch com auth e criar blob URL — resolve CORS e auth
@@ -2043,12 +2055,10 @@ function openMedia(p, nm) {
       mediaEl.style.cssText = 'width:100%;margin-top:20px;';
     }
     mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
-    const loading = overlay.querySelector('#media-loading');
-    if (loading) loading.remove();
-    overlay.insertBefore(mediaEl, overlay.querySelector('button'));
+    loadingEl.remove();
+    overlay.insertBefore(mediaEl, closeBtn);
   }).catch(e => {
-    const loading = overlay.querySelector('#media-loading');
-    if (loading) loading.textContent = '❌ Erro: ' + e.message;
+    loadingEl.textContent = '❌ Erro: ' + e.message;
   });
 }
 
