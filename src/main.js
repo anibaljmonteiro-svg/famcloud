@@ -2013,15 +2013,43 @@ function closePdf() { document.getElementById('pdf-ov').classList.remove('show')
 function openMedia(p, nm) {
   const ext = ex(nm);
   const tag = VE.includes(ext) ? 'video' : 'audio';
-  const attrs = VE.includes(ext) ? 'style="max-width:88vw;max-height:76vh;border-radius:10px;" preload="metadata"' : 'controls style="width:100%;margin-top:20px"';
-  // Reuse gallery overlay as simple viewer
-  const ovHtml = `
-    <div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px">
-      <div style="color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center">${nm}</div>
-      <${tag} src="${dav(p)}" controls autoplay ${attrs}></${tag}>
-      <button onclick="this.closest('[style]').remove()" style="padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer">✕ Fechar</button>
-    </div>`;
-  document.body.insertAdjacentHTML('beforeend', ovHtml);
+  // Vídeos vão DIRECTAMENTE ao Nextcloud — bypass do Cloudflare Worker
+  // O Worker tem limite de 30s que parte vídeos grandes
+  const videoUrl = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p + '?access_token=' + btoa(S.user + ':' + S.pass);
+  // Usa URL directa com Basic Auth via fetch + blob URL para evitar CORS
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
+  overlay.innerHTML = `
+    <div style="color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center">${nm}</div>
+    <div id="media-loading" style="color:rgba(255,255,255,.6);font-size:13px">⏳ A carregar...</div>
+    <button onclick="this.closest('div[style]').remove()" style="padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer">✕ Fechar</button>`;
+  document.body.appendChild(overlay);
+
+  // Fetch com auth e criar blob URL — resolve CORS e auth
+  fetch(NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p, {
+    headers: { 'Authorization': auth() }
+  }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.blob();
+  }).then(blob => {
+    const blobUrl = URL.createObjectURL(blob);
+    const mediaEl = document.createElement(tag);
+    mediaEl.src = blobUrl;
+    mediaEl.controls = true;
+    mediaEl.autoplay = true;
+    if (tag === 'video') {
+      mediaEl.style.cssText = 'max-width:90vw;max-height:75vh;border-radius:10px;';
+    } else {
+      mediaEl.style.cssText = 'width:100%;margin-top:20px;';
+    }
+    mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+    const loading = overlay.querySelector('#media-loading');
+    if (loading) loading.remove();
+    overlay.insertBefore(mediaEl, overlay.querySelector('button'));
+  }).catch(e => {
+    const loading = overlay.querySelector('#media-loading');
+    if (loading) loading.textContent = '❌ Erro: ' + e.message;
+  });
 }
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────
