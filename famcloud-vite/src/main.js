@@ -870,6 +870,14 @@ function updateTreeActive() {
 
 // ─── FILE LISTING ─────────────────────────────────────────────────────────────
 async function loadFiles(p) {
+  // Mostra skeleton imediatamente enquanto carrega
+  const fl = document.getElementById('fl');
+  if (fl && !fl.querySelector('.fgrid, .flist')) {
+    fl.innerHTML = S.view === 'grid' ? skeletonGrid() : skeletonList();
+  } else if (fl) {
+    // Tem conteúdo — mostra skeleton por cima com fade suave
+    fl.style.opacity = '0.5';
+  }
   S.path = p; clearSel(); updateBC(); updateTreeActive();
   document.getElementById('btn-back').style.display = p === '/' ? 'none' : 'flex';
   document.getElementById('fl').innerHTML = '<div class="loading"><div class="spin"></div> A carregar...</div>';
@@ -995,6 +1003,7 @@ function closeSB() {
 // ─── RENDER GRID/LIST ─────────────────────────────────────────────────────────
 function renderFiles(items) {
   const fl = document.getElementById('fl');
+  fl.style.opacity = '';  // Restaura opacidade após skeleton
   if (!items.length) {
     fl.innerHTML = '<div class="empty"><div class="ei">📂</div><h3>Pasta vazia</h3><p>Arrasta ficheiros aqui ou clica em "Carregar"</p></div>';
     return;
@@ -1044,8 +1053,9 @@ function card(it) {
     isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
     `window.dlF('${sp}','${sn}')`;
   return `<div class="fc${isDir?' folder':''}${sel?' selected':''}"
+    ${isDir?`onmouseenter="window.prefetchDir('${sp}')" onmouseleave="window.cancelPrefetch('${sp}')"`:''}
     onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
+    oncontextmenu="window.showCtxMenu(event,'${sp}','${sn}',${isDir},'${fileid}')"
     ontouchstart="window.tStart(event,'${sp}')" ontouchend="window.tEnd()"
     draggable="${isMobile()?'false':'true'}"
     ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
@@ -1078,7 +1088,7 @@ function row(it) {
     `window.dlF('${sp}','${sn}')`;
   return `<div class="lr${sel?' selected':''}" data-path="${p}"
     onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
+    oncontextmenu="window.showCtxMenu(event,'${sp}','${sn}',${isDir},'${fileid}')"
     draggable="${isMobile()?'false':'true'}"
     ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
     ondragend="if(!isMobile())window.dEnd(event)"
@@ -1410,6 +1420,157 @@ async function uploadFolderFiles(fl) {
 }
 
 // ─── UPLOAD QUEUE MANAGER ────────────────────────────────────────────────────
+
+// ─── SKELETON SCREENS ────────────────────────────────────────────────────────
+function skeletonGrid(n=12) {
+  return '<div class="fgrid">' + Array.from({length:n}, () => `
+    <div class="sk-card">
+      <div class="sk sk-icon"></div>
+      <div class="sk sk-nm"></div>
+      <div class="sk sk-meta"></div>
+    </div>`).join('') + '</div>';
+}
+function skeletonList(n=10) {
+  return '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' +
+    Array.from({length:n}, () => `
+    <div class="sk-row">
+      <div class="sk sk-nm-r"></div>
+      <div class="sk sk-sz"></div>
+      <div class="sk sk-dt"></div>
+      <div class="sk sk-ac"></div>
+    </div>`).join('') + '</div>';
+}
+
+
+// ─── CONTEXT MENU ────────────────────────────────────────────────────────────
+let _ctxMenu = null;
+
+function closeCtx() {
+  if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu = null; }
+}
+
+function showCtxMenu(e, path, nm, isDir, fileid='') {
+  e.preventDefault();
+  e.stopPropagation();
+  closeCtx();
+
+  const sp = esc(path), sn = esc(nm);
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.innerHTML = `
+    <div class="ctx-header">📄 ${nm}</div>
+    ${!isDir ? `<button class="ctx-item" onclick="closeCtx();window.dlF('${sp}','${sn}')"><span class="ctx-ic dl">⬇️</span>Download</button>` : ''}
+    <button class="ctx-item" onclick="closeCtx();window.shareItem('${sp}','${sn}')"><span class="ctx-ic sh">🔗</span>Partilhar</button>
+    <button class="ctx-item" onclick="closeCtx();window.startRn('${sp}','${sn}')"><span class="ctx-ic rn">✏️</span>Renomear</button>
+    <button class="ctx-item" onclick="closeCtx();window.startMoveItem('${sp}','${sn}')"><span class="ctx-ic mv">📦</span>Mover para...</button>
+    <button class="ctx-item" onclick="closeCtx();window.openTags('${sp}','${sn}','${fileid}')"><span class="ctx-ic tg">🏷️</span>Tags</button>
+    ${!isDir && fileid ? `<button class="ctx-item" onclick="closeCtx();window.openVersions('${sp}','${sn}','${fileid}')"><span class="ctx-ic vr">🕒</span>Versões</button>` : ''}
+    ${isDir ? `<button class="ctx-item" onclick="closeCtx();window.openDir('${sp}')"><span class="ctx-ic dl">📂</span>Abrir pasta</button>` : ''}
+    <div class="ctx-sep"></div>
+    <button class="ctx-item red" onclick="closeCtx();window.delIt('${sp}','${sn}')"><span class="ctx-ic dl-red">🗑️</span>Apagar</button>
+  `;
+
+  // Posiciona o menu
+  document.body.appendChild(menu);
+  _ctxMenu = menu;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const r = menu.getBoundingClientRect();
+  let x = e.clientX, y = e.clientY;
+  if (x + r.width > vw - 10) x = vw - r.width - 10;
+  if (y + r.height > vh - 10) y = vh - r.height - 10;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+
+  // Fecha ao clicar fora
+  setTimeout(() => document.addEventListener('click', closeCtx, {once:true}), 0);
+}
+
+
+// ─── PRE-FETCH ────────────────────────────────────────────────────────────────
+const _prefetchCache = new Map();
+const _prefetchTimers = new Map();
+
+function prefetchDir(path) {
+  if (_prefetchCache.has(path) || !path) return;
+  const t = setTimeout(async () => {
+    _prefetchTimers.delete(path);
+    if (_prefetchCache.has(path)) return;
+    try {
+      const r = await fetch(dav(path), {
+        method: 'PROPFIND',
+        headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
+        body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>'
+      });
+      if (r.ok) {
+        const txt = await r.text();
+        _prefetchCache.set(path, txt);
+      }
+    } catch(e) {}
+  }, 300); // só pre-fetch se hover durar 300ms
+  _prefetchTimers.set(path, t);
+}
+
+function cancelPrefetch(path) {
+  const t = _prefetchTimers.get(path);
+  if (t) { clearTimeout(t); _prefetchTimers.delete(path); }
+}
+
+function getPrefetched(path) {
+  return _prefetchCache.get(path) || null;
+}
+
+
+// ─── CHUNKED UPLOAD ──────────────────────────────────────────────────────────
+const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB por chunk
+
+async function uploadChunked(file, destPath, onProgress) {
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const uploadId = Date.now() + '-' + Math.random().toString(36).slice(2);
+  const chunkDir = NC + '/remote.php/dav/uploads/' + encodeURIComponent(S.user) + '/' + uploadId;
+
+  // Cria a pasta de upload temporária
+  await fetch(chunkDir, {
+    method: 'MKCOL',
+    headers: { 'Authorization': auth() }
+  });
+
+  let uploaded = 0;
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    const chunkName = String(i).padStart(5, '0');
+
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (e) => {
+        const totalSent = uploaded + e.loaded;
+        onProgress(totalSent, file.size, i + 1, totalChunks);
+      };
+      xhr.onload = () => xhr.status < 400 ? resolve() : reject(new Error('Chunk ' + i + ' failed: ' + xhr.status));
+      xhr.onerror = reject;
+      xhr.open('PUT', chunkDir + '/' + chunkName);
+      xhr.setRequestHeader('Authorization', auth());
+      xhr.send(chunk);
+    });
+
+    uploaded += (end - start);
+    onProgress(uploaded, file.size, i + 1, totalChunks);
+  }
+
+  // Move o ficheiro para o destino final
+  const finalUrl = NC + '/remote.php/dav/uploads/' + encodeURIComponent(S.user) + '/' + uploadId + '/.file';
+  const moveResp = await fetch(finalUrl, {
+    method: 'MOVE',
+    headers: {
+      'Authorization': auth(),
+      'Destination': NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + destPath,
+      'Overwrite': 'T'
+    }
+  });
+  if (!moveResp.ok) throw new Error('Finalização falhou: ' + moveResp.status);
+}
+
 const UPQ = {
   jobs: [],   // {id, name, total, files, destPath, status:'wait'|'run'|'ok'|'err', done:0, errors:0}
   _running: false,
@@ -1487,6 +1648,21 @@ const UPQ = {
       let queueId=null;
       try { queueId=await UQ.add(f,destPath); } catch(e) {}
       let uploaded=false;
+      // Ficheiros > 100MB usam chunked upload para suportar falhas e retoma
+      if (f.size > 100 * 1024 * 1024 && !S.uploadCancel) {
+        try {
+          await uploadChunked(f, destPath, (sent, total, chunk, totalChunks) => {
+            const pct = Math.min(99, Math.round(sent / total * 100));
+            document.getElementById('uprog-bar').style.width = pct + '%';
+            document.getElementById('uprog-file').textContent = `⬆️ ${f.name} — chunk ${chunk}/${totalChunks} (${pct}%)`;
+            const elapsed = (Date.now() - startTime) / 1000 || 0.001;
+            document.getElementById('uprog-speed').textContent = fmtSz(sent / elapsed) + '/s';
+          });
+          uploaded = true;
+        } catch(chunkErr) {
+          // Fallback para upload normal se chunked falhar
+        }
+      }
       for (let attempt=0; attempt<3&&!S.uploadCancel&&!uploaded; attempt++) {
         if (attempt>0) { await new Promise(r=>setTimeout(r,1000*attempt)); }
         const ok = await new Promise(resolve=>{
@@ -3707,6 +3883,10 @@ document.addEventListener('visibilitychange', () => {
 // ─── EXPOSE TO GLOBAL SCOPE ───────────────────────────────────────────────
 // Usa Object.assign para garantir que o Vite/Terser não optimiza as referências
 Object.assign(globalThis, {
+  skeletonGrid, skeletonList,
+  showCtxMenu, closeCtx,
+  prefetchDir, cancelPrefetch, getPrefetched,
+  uploadChunked,
   applyTheme,
   renderThemeDots,
   renderThemeGrid,

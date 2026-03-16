@@ -1,16 +1,16 @@
-const CACHE_NAME = 'fc-v22';
-const ASSETS = [
+const CACHE_NAME = 'fc-v23';
+const CACHE_STATIC = 'fc-static-v23';
+
+// Assets estáticos que mudam raramente
+const STATIC_ASSETS = [
   '/famcloud/',
   '/famcloud/index.html',
-  '/famcloud/manifest.json',
-  '/famcloud/icon-192.png',
-  '/famcloud/icon-512.png',
 ];
 
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE_NAME)
-      .then(c => c.addAll(ASSETS))
+      .then(c => c.addAll(STATIC_ASSETS))
       .then(() => self.skipWaiting())
   );
 });
@@ -19,13 +19,13 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        keys.filter(k => k !== CACHE_NAME && k !== CACHE_STATIC)
+          .map(k => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );
 });
 
-// Cache strategy: Network-first para API, Cache-first para assets estáticos
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
@@ -38,7 +38,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Share target — abre a app
+  // Share target — recebe ficheiros de outras apps
   if (e.request.method === 'POST' && url.pathname.includes('/famcloud/')) {
     e.respondWith(
       (async () => {
@@ -56,21 +56,39 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Assets estáticos: cache-first
-  if (e.request.method === 'GET') {
+  if (e.request.method !== 'GET') return;
+
+  // Assets do Vite (JS/CSS com hash) — cache agressivo stale-while-revalidate
+  const isViteAsset = url.pathname.includes('/assets/') ||
+    url.pathname.match(/\.(js|css|woff2?|ttf|eot)$/);
+
+  if (isViteAsset) {
     e.respondWith(
-      caches.match(e.request).then(cached => {
-        const network = fetch(e.request).then(res => {
-          if (res && res.status === 200) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-          }
-          return res;
-        });
-        return cached || network;
+      caches.open(CACHE_STATIC).then(async cache => {
+        const cached = await cache.match(e.request);
+        if (cached) return cached; // Cache hit — instantâneo
+        const fresh = await fetch(e.request);
+        if (fresh && fresh.status === 200) {
+          cache.put(e.request, fresh.clone());
+        }
+        return fresh;
       })
     );
+    return;
   }
+
+  // HTML e outros — network-first com fallback
+  e.respondWith(
+    fetch(e.request)
+      .then(res => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
+  );
 });
 
 async function openShareDB() {
