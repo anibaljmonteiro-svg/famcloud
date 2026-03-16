@@ -11,7 +11,7 @@
 <meta name="theme-color" id="meta-theme" content="#c4956a">
 <title>FamCloud</title>
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -911,6 +911,22 @@ body {
 .form-row input[type=date]:focus, .form-row input[type=time]:focus { border-color:var(--primary); }
 
 </style>
+
+<!-- ═══ iOS SPLASH SCREENS ═══ -->
+<!-- iPhone SE / 8 / 7 / 6s -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" href="/famcloud/splash-750x1334.png">
+<!-- iPhone X / XS / 11 Pro / 12 mini / 13 mini -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/famcloud/splash-1125x2436.png">
+<!-- iPhone XR / 11 -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/famcloud/splash-828x1792.png">
+<!-- iPhone 12 / 13 / 14 -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/famcloud/splash-1170x2532.png">
+<!-- iPhone 14 Pro / 15 / 15 Pro -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" href="/famcloud/splash-1179x2556.png">
+<!-- iPhone 14 Plus / 15 Plus -->
+<link rel="apple-touch-startup-image" media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" href="/famcloud/splash-1290x2796.png">
+<!-- Apple touch icon correcto -->
+<link rel="apple-touch-icon" sizes="180x180" href="/famcloud/apple-touch-icon.png">
 </head>
 <body data-theme="terra">
 <!-- LOGIN -->
@@ -1071,6 +1087,17 @@ body {
   </div><!-- app-body -->
   </div><!-- sec-files -->
 
+  <!-- RECENTES SECTION -->
+  <div class="app-section" id="sec-recents">
+    <div class="main" style="padding:14px">
+      <div class="toolbar" style="margin-bottom:12px">
+        <span style="font-size:16px;font-weight:700;color:var(--text)">🕐 Recentes</span>
+        <button class="btn btn-s" style="margin-left:auto" onclick="Recents.clear();window.showRecents()">Limpar</button>
+      </div>
+      <div id="recents-list"></div>
+    </div>
+  </div>
+
   <!-- CALENDAR SECTION -->
   <div class="app-section" id="sec-calendar">
     <div class="cal-section">
@@ -1134,6 +1161,9 @@ body {
   <nav class="bnav" id="bnav">
     <button class="bnt active" id="bnt-files" onclick="window.switchTab('files')">
       <span class="bnt-ic">📂</span><span class="bnt-lbl">Ficheiros</span>
+    </button>
+    <button class="bnt" id="bnt-recents" onclick="window.switchTab('recents')">
+      <span class="bnt-ic">🕐</span><span class="bnt-lbl">Recentes</span>
     </button>
     <button class="bnt" id="bnt-calendar" onclick="window.switchTab('calendar')">
       <span class="bnt-ic">📅</span><span class="bnt-lbl">Calendário</span>

@@ -1107,3 +1107,27 @@ body {
   display:flex; align-items:center; gap:8px; padding:8px 10px;
   background:var(--bg2); border-radius:8px; margin-bottom:6px;
 }
+
+/* ═══════════════════════════════════════
+   OFFLINE/ONLINE INDICATOR
+═══════════════════════════════════════ */
+.offline-pill {
+  padding:3px 10px; background:#fef2f0; border:1px solid #f9c4bb;
+  color:var(--red); border-radius:8px; font-size:11px; font-weight:700;
+  display:none; animation: pulse-offline 2s ease-in-out infinite;
+}
+@keyframes pulse-offline {
+  0%, 100% { opacity:1; }
+  50% { opacity:.6; }
+}
+/* Desactiva upload quando offline */
+body.is-offline .btn-p:not(.force-online) {
+  opacity:.5; pointer-events:none; filter:grayscale(.6);
+}
+body.is-offline .fab-main {
+  opacity:.5; pointer-events:none; filter:grayscale(.6);
+}
+body.is-offline .dz {
+  opacity:.4; pointer-events:none;
+  border-color:var(--text3);
+}

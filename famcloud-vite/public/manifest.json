@@ -5,8 +5,8 @@
   "start_url": "/famcloud/",
   "scope": "/famcloud/",
   "display": "standalone",
-  "background_color": "#faf7f2",
-  "theme_color": "#c4956a",
+  "background_color": "#3f35c8",
+  "theme_color": "#3f35c8",
   "orientation": "any",
   "categories": [
     "productivity",
@@ -38,13 +38,25 @@
       "src": "/famcloud/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/famcloud/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/famcloud/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/famcloud/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "shortcuts": [
@@ -84,5 +96,24 @@
         }
       ]
     }
-  ]
+  ],
+  "screenshots": [
+    {
+      "src": "/famcloud/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "FamCloud — A tua cloud familiar"
+    },
+    {
+      "src": "/famcloud/screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "FamCloud — Gestão de ficheiros familiar"
+    }
+  ],
+  "lang": "pt-PT",
+  "dir": "ltr",
+  "id": "/famcloud/"
 }

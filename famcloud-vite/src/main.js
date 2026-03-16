@@ -487,6 +487,8 @@ function initApp() {
   document.getElementById('uname-top').textContent = S.user;
   document.getElementById('drop-nm').textContent = S.user;
   document.getElementById('uav-l').textContent = S.user.charAt(0).toUpperCase();
+  // Indicador offline/online
+  initOfflineDetection();
   // Carrega widget "Hoje na História"
   setTimeout(() => loadTodayInHistory(), 2000);
   // Restaura emoji avatar se existir
@@ -1660,6 +1662,10 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     window.openSearch();
   }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault();
+    UndoStack.pop();
+  }
   if (e.key === 'Escape') {
     window.closeSearch();
     window.closeCtx();
@@ -2115,6 +2121,161 @@ function removeOptimisticCard(path) {
   S.lastItems = S.lastItems.filter(it => !(it.path === path && it.dateStr === 'A carregar...'));
 }
 
+
+// ─── INDICADOR OFFLINE/ONLINE ────────────────────────────────────────────────
+function initOfflineDetection() {
+  const pill = document.getElementById('offline-pill');
+  const body = document.body;
+
+  function setOffline() {
+    if (pill) { pill.style.display = 'block'; pill.textContent = '⚡ Offline'; }
+    body.classList.add('is-offline');
+    toast('📡 Sem ligação à internet.', 'err');
+  }
+
+  function setOnline() {
+    if (pill) { pill.style.display = 'none'; }
+    body.classList.remove('is-offline');
+    if (!navigator.onLine) return;
+    toast('✅ Ligação restabelecida!', 'ok');
+    // Re-carrega ficheiros da pasta actual
+    if (S.user) loadFilesDebounced(S.path);
+  }
+
+  window.addEventListener('offline', setOffline);
+  window.addEventListener('online', setOnline);
+
+  // Estado inicial
+  if (!navigator.onLine) setOffline();
+}
+
+
+// ─── LOGGER CENTRAL ──────────────────────────────────────────────────────────
+const Logger = (() => {
+  const _logs = [];
+  const MAX = 50;
+
+  function _add(level, msg, data) {
+    const entry = { level, msg, data, ts: new Date().toISOString() };
+    _logs.unshift(entry);
+    if (_logs.length > MAX) _logs.pop();
+    // Guarda no localStorage para debug
+    try { localStorage.setItem('fc_logs', JSON.stringify(_logs.slice(0, 20))); } catch(e) {}
+  }
+
+  return {
+    error(msg, data) { _add('error', msg, data); },
+    warn(msg, data)  { _add('warn',  msg, data); },
+    info(msg, data)  { _add('info',  msg, data); },
+    getLogs()        { return [..._logs]; },
+    clear()          { _logs.length = 0; },
+  };
+})();
+
+// Captura erros não tratados
+window.addEventListener('unhandledrejection', e => {
+  Logger.error('Unhandled promise rejection', e.reason?.message || e.reason);
+});
+window.addEventListener('error', e => {
+  Logger.error('Uncaught error', { msg: e.message, file: e.filename, line: e.lineno });
+});
+
+
+// ─── DESFAZER (CTRL+Z) ───────────────────────────────────────────────────────
+const UndoStack = (() => {
+  const _stack = []; // {type, data, undo}
+  const MAX = 10;
+
+  return {
+    push(action) {
+      _stack.unshift(action);
+      if (_stack.length > MAX) _stack.pop();
+      // Mostra hint
+      toast(`✅ ${action.label} · Ctrl+Z para desfazer`, 'ok');
+    },
+    async pop() {
+      const action = _stack.shift();
+      if (!action) { toast('Nada para desfazer.', ''); return; }
+      try {
+        await action.undo();
+        toast(`↩️ Desfeito: ${action.label}`, 'ok');
+        loadFilesDebounced(S.path);
+        _idb.del(S.path);
+      } catch(e) {
+        Logger.error('Undo failed', e.message);
+        toast('Erro ao desfazer.', 'err');
+      }
+    },
+    has() { return _stack.length > 0; }
+  };
+})();
+
+
+// ─── VISTA RECENTES ──────────────────────────────────────────────────────────
+const Recents = (() => {
+  const KEY = 'fc_recents_v1';
+  const MAX = 20;
+
+  function _load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; }
+  }
+  function _save(arr) {
+    try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch(e) {}
+  }
+
+  return {
+    add(item) {
+      const arr = _load().filter(r => r.path !== item.path);
+      arr.unshift({ ...item, accessedAt: Date.now() });
+      _save(arr.slice(0, MAX));
+    },
+    get() { return _load(); },
+    clear() { _save([]); }
+  };
+})();
+
+function showRecents() {
+  const items = Recents.get();
+  const fl = document.getElementById('fl');
+  if (!items.length) {
+    fl.innerHTML = '<div class="empty"><div class="ei">🕐</div><h3>Sem recentes</h3><p>Os ficheiros que abrires aparecem aqui.</p></div>';
+    return;
+  }
+  // Renderiza como grid normal
+  S.lastItems = items.map(r => ({
+    name: r.name, path: r.path, isDir: r.isDir,
+    size: r.size || 0, dateStr: r.accessedAt ? new Date(r.accessedAt).toLocaleDateString('pt-PT') : '',
+    fileid: r.fileid || ''
+  }));
+  renderFiles(S.lastItems);
+}
+
+
+// ─── BATCHING WEBDAV ─────────────────────────────────────────────────────────
+// Processa operações em lotes para evitar rate limiting (429)
+async function batchWebDAV(items, operation, { batchSize = 4, delayMs = 200 } = {}) {
+  const results = { ok: 0, err: 0, errors: [] };
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(async item => {
+      try {
+        await operation(item);
+        results.ok++;
+      } catch(e) {
+        results.err++;
+        results.errors.push({ item, error: e.message });
+        Logger.warn('batchWebDAV error', { item, error: e.message });
+      }
+    }));
+    // Pequena pausa entre batches para não saturar o servidor
+    if (i + batchSize < items.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  return results;
+}
+
 const UPQ = {
   jobs: [],   // {id, name, total, files, destPath, status:'wait'|'run'|'ok'|'err', done:0, errors:0}
   _running: false,
@@ -2414,7 +2575,16 @@ async function delIt(p, nm) {
   S.lastItems = S.lastItems.filter(it => it.path !== p);
   renderFiles(S.lastItems);
   _idb.set(S.path, S.lastItems); // actualiza cache
-  toast('"' + nm + '" apagado.', 'ok');
+  // Push para undo stack
+  UndoStack.push({
+    label: `Apagar "${nm}"`,
+    undo: async () => {
+      // Não conseguimos restaurar ficheiros apagados sem lixo
+      // Mas podemos avisar e abrir o lixo
+      toast('Ficheiro apagado permanentemente. Verifica o lixo.', 'err');
+      openTrash();
+    }
+  });
 
   try {
     const r = await fetch(dav(p), { method:'DELETE', headers:{'Authorization':auth()} });
@@ -2459,7 +2629,16 @@ async function doRename() {
   try {
     const r = await fetch(dav(oldPath), { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'F'} });
     if (r.ok || r.status===201 || r.status===204) {
-      toast('✅ Renomeado!', 'ok');
+      const oldNm2 = S.renameTarget?.nm || '';
+      const newNm2 = n;
+      UndoStack.push({
+        label: `Renomear "${oldNm2}" → "${newNm2}"`,
+        undo: async () => {
+          const curPath = newPath;
+          const dest2 = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + par + encodeURIComponent(oldNm2);
+          await fetch(dav(curPath), { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest2,'Overwrite':'F'} });
+        }
+      });
       _idb.del(S.path); // Invalida cache desta pasta
       loadFilesDebounced(S.path); // Sincroniza com servidor
     } else {
@@ -2945,6 +3124,9 @@ function closePdf() { document.getElementById('pdf-ov').classList.remove('show')
 
 // ─── MEDIA (video/audio) ──────────────────────────────────────────────────────
 function openMedia(p, nm) {
+  // Regista nos recentes
+  const item = S.lastItems?.find(it => it.path === p);
+  if (item) Recents.add(item);
   const ext = ex(nm);
   const isVideo = VE.includes(ext);
   const tag = isVideo ? 'video' : 'audio';
@@ -4641,7 +4823,9 @@ function webShareCurrentFile() {
 }
 
 Object.assign(globalThis, {
-  Store,
+  Store, Logger, UndoStack, Recents,
+  initOfflineDetection, batchWebDAV,
+  showRecents,
   createShare, deleteShare, nativeShareLink, setShareExpiry,
   _loadExistingShares,
   addOptimisticCard, updateOptimisticCard, removeOptimisticCard,
