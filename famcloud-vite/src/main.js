@@ -625,6 +625,7 @@ function openProfile() {
 function setEmojiAvatar(emoji) {
   // Guarda emoji como avatar
   localStorage.setItem('fc_emoji_av_' + S.user, emoji);
+  Store.set('emojiAvatar', emoji);
   // Actualiza UI
   const uav = document.getElementById('uav');
   const profAv = document.getElementById('prof-av');
@@ -1532,6 +1533,92 @@ const _idb = (() => {
 // TTL do cache — 5 minutos
 const CACHE_TTL = 5 * 60 * 1000;
 
+
+
+// ─── ESTADO REACTIVO ─────────────────────────────────────────────────────────
+// Mini-store reactivo: quando o estado muda, os componentes subscrevem
+// e actualizam automaticamente. Sem Redux, sem dependências.
+const Store = (() => {
+  const _subs = new Map();
+  const _state = {
+    path: '/',
+    user: '',
+    displayName: '',
+    emojiAvatar: '',
+    theme: 'terra',
+    view: 'grid',
+    sort: { by:'name', dir:'asc' },
+    selecting: false,
+    selected: new Set(),
+    storageUsed: 0,
+    storageTotal: 0,
+  };
+
+  return {
+    get(key) { return _state[key]; },
+
+    set(key, value) {
+      if (_state[key] === value) return;
+      _state[key] = value;
+      // Notifica subscritores
+      const handlers = _subs.get(key) || [];
+      handlers.forEach(fn => { try { fn(value); } catch(e) {} });
+      // Também S para compatibilidade com código existente
+      if (key in S) S[key] = value;
+    },
+
+    subscribe(key, fn) {
+      if (!_subs.has(key)) _subs.set(key, []);
+      _subs.get(key).push(fn);
+      // Chama imediatamente com valor actual
+      fn(_state[key]);
+      return () => {
+        const arr = _subs.get(key) || [];
+        const idx = arr.indexOf(fn);
+        if (idx >= 0) arr.splice(idx, 1);
+      };
+    }
+  };
+})();
+
+// Subscritores do Store — actualizam UI automaticamente
+// Quando o nome de exibição muda → actualiza topbar e dropdown
+Store.subscribe('displayName', name => {
+  if (!name) return;
+  const unTop = document.getElementById('uname-top');
+  const dropNm = document.getElementById('drop-nm');
+  if (unTop) unTop.textContent = name;
+  if (dropNm) dropNm.textContent = name;
+});
+
+// Quando emoji avatar muda → actualiza todos os avatares
+Store.subscribe('emojiAvatar', emoji => {
+  if (!emoji) return;
+  const uav = document.getElementById('uav');
+  if (uav) uav.innerHTML = `<span style="font-size:18px">${emoji}</span>`;
+});
+
+// Quando tema muda → actualiza meta theme-color
+Store.subscribe('theme', theme => {
+  const t = THEMES[theme];
+  if (t?.meta) {
+    const meta = document.getElementById('meta-theme');
+    if (meta) meta.content = t.meta;
+  }
+});
+
+// Quando storage muda → actualiza barra
+Store.subscribe('storageUsed', used => {
+  const total = Store.get('storageTotal');
+  if (!total) return;
+  const pct = Math.round(used/total*100);
+  const fill = document.getElementById('st-fill');
+  const txt = document.getElementById('st-txt');
+  const pctEl = document.getElementById('st-pct');
+  if (fill) { fill.style.width = pct+'%'; fill.classList.toggle('warn', pct>80); }
+  if (txt) txt.textContent = `💾 ${fmtSz(used)} de ${fmtSz(total)}`;
+  if (pctEl) pctEl.textContent = pct+'%';
+});
 
 // ─── SEARCH INDEX LOCAL ──────────────────────────────────────────────────────
 // Índice em memória de todos os ficheiros visitados
@@ -2921,15 +3008,71 @@ function openMedia(p, nm) {
 }
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────
+// Partilha activa — para editar/eliminar
+let _activeShare = null;
+
 async function shareItem(p, nm) {
+  _activeShare = { p, nm };
   document.getElementById('share-desc').textContent = 'Partilhar "' + nm + '"';
-  document.getElementById('share-content').innerHTML = '<div class="loading" style="padding:24px"><div class="spin"></div></div>';
+  document.getElementById('share-content').innerHTML = _shareUI();
   showM('share');
+  // Verifica se já existe partilha para este ficheiro
+  _loadExistingShares(p);
+}
+
+function _shareUI() {
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24*60*60*1000).toISOString().split('T')[0];
+  const in7d = new Date(now.getTime() + 7*24*60*60*1000).toISOString().split('T')[0];
+  const in30d = new Date(now.getTime() + 30*24*60*60*1000).toISOString().split('T')[0];
+
+  return `
+    <div id="share-existing" style="margin-bottom:14px"></div>
+    <div style="background:var(--bg2);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Novo link</div>
+      <span class="slbl">Expiração</span>
+      <div class="share-expiry-row">
+        <button class="share-exp-btn active" data-days="1" onclick="window.setShareExpiry(this,'${tomorrow}')">24h</button>
+        <button class="share-exp-btn" data-days="7" onclick="window.setShareExpiry(this,'${in7d}')">7 dias</button>
+        <button class="share-exp-btn" data-days="30" onclick="window.setShareExpiry(this,'${in30d}')">30 dias</button>
+        <button class="share-exp-btn" data-days="0" onclick="window.setShareExpiry(this,'')">Sem limite</button>
+      </div>
+      <span class="slbl" style="margin-top:10px;display:block">Palavra-passe (opcional)</span>
+      <input class="mi" type="password" id="share-pw" placeholder="Proteger com password" style="margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <input type="checkbox" id="share-editable" style="width:16px;height:16px">
+        <label for="share-editable" style="font-size:13px;color:var(--text2)">Permitir edição/upload</label>
+      </div>
+      <button class="btn btn-p" style="width:100%;justify-content:center" onclick="window.createShare()">
+        🔗 Criar link
+      </button>
+    </div>
+    <div id="share-result"></div>`;
+}
+
+// Data de expiração seleccionada
+let _shareExpiry = new Date(Date.now() + 24*60*60*1000).toISOString().split('T')[0];
+
+function setShareExpiry(btn, date) {
+  _shareExpiry = date;
+  document.querySelectorAll('.share-exp-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function createShare() {
+  if (!_activeShare) return;
+  const btn = document.querySelector('#share-content .btn-p');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ A criar...'; }
+
   try {
     const params = new URLSearchParams();
-    params.append('path', p.replace(/\/$/,''));
-    params.append('shareType', '3');
-    params.append('permissions', '1');
+    params.append('path', _activeShare.p.replace(/\/$/,''));
+    params.append('shareType', '3'); // link público
+    params.append('permissions', document.getElementById('share-editable')?.checked ? '7' : '1');
+    if (_shareExpiry) params.append('expireDate', _shareExpiry);
+    const pw = document.getElementById('share-pw')?.value;
+    if (pw) params.append('password', pw);
+
     const r = await fetch(PROXY+'/nextcloud/ocs/v2.php/apps/files_sharing/api/v1/shares', {
       method: 'POST',
       headers: { 'Authorization': auth(), 'OCS-APIRequest': 'true', 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -2938,22 +3081,98 @@ async function shareItem(p, nm) {
     const txt = await r.text();
     const doc = new DOMParser().parseFromString(txt, 'text/xml');
     const token = doc.querySelector('token')?.textContent;
-    const url   = doc.querySelector('url')?.textContent;
-    if (token || url) {
-      const shareUrl = url || `https://nx91769.your-storageshare.de/index.php/s/${token}`;
-      document.getElementById('share-content').innerHTML = `
-        <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Link criado. Qualquer pessoa com o link pode ver:</p>
-        <div class="share-link-box">
+    const url = doc.querySelector('url')?.textContent;
+
+    if (!token && !url) {
+      const code = doc.querySelector('statuscode')?.textContent;
+      throw new Error(code === '403' ? 'Sem permissão' : 'Erro ' + code);
+    }
+
+    const shareUrl = url || `https://nx91769.your-storageshare.de/index.php/s/${token}`;
+    const expiryTxt = _shareExpiry
+      ? `Expira em ${new Date(_shareExpiry).toLocaleDateString('pt-PT')}`
+      : 'Sem expiração';
+
+    document.getElementById('share-result').innerHTML = `
+      <div style="background:rgba(5,150,105,.08);border:1.5px solid rgba(5,150,105,.2);border-radius:12px;padding:14px">
+        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">✅ Link criado · ${expiryTxt}${pw?' · 🔒 Com password':''}</div>
+        <div class="share-link-box" style="margin-bottom:8px">
           <input type="text" id="share-url-inp" value="${shareUrl}" readonly>
           <button onclick="window.copyShareLink()">Copiar</button>
         </div>
-        <p style="font-size:12px;color:var(--text2);line-height:1.5">⚠️ Link público. Partilha apenas com quem confias.</p>`;
-    } else {
-      const code = doc.querySelector('statuscode')?.textContent;
-      throw new Error(code==='403'?'Sem permissão para partilhar':'Resposta inesperada ('+code+')');
-    }
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-s" style="flex:1;justify-content:center;font-size:12px" onclick="window.nativeShareLink('${shareUrl}','${hesc(_activeShare.nm)}')">📤 Partilhar</button>
+          <button class="btn btn-red" style="flex:1;justify-content:center;font-size:12px" onclick="window.deleteShare('${token}')">🗑️ Revogar</button>
+        </div>
+      </div>`;
+
+    // Recarrega lista de partilhas
+    _loadExistingShares(_activeShare.p);
+
   } catch(e) {
-    document.getElementById('share-content').innerHTML = `<div style="color:var(--red);font-size:13px;padding:14px;background:#fef2f0;border-radius:10px">Não foi possível criar link:<br>${e.message}<br><small>A funcionalidade de partilha pode não estar activa no servidor.</small></div>`;
+    document.getElementById('share-result').innerHTML =
+      `<div style="color:var(--red);font-size:13px;padding:12px;background:#fef2f0;border-radius:10px">❌ ${e.message}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔗 Criar link'; }
+  }
+}
+
+async function _loadExistingShares(path) {
+  const el = document.getElementById('share-existing');
+  if (!el) return;
+  try {
+    const r = await fetch(
+      PROXY + '/nextcloud/ocs/v2.php/apps/files_sharing/api/v1/shares?path=' + encodeURIComponent(path.replace(/\/$/,'')),
+      { headers: { 'Authorization': auth(), 'OCS-APIRequest': 'true' } }
+    );
+    if (!r.ok) return;
+    const txt = await r.text();
+    const doc = new DOMParser().parseFromString(txt, 'text/xml');
+    const shares = [...doc.querySelectorAll('element')].filter(s =>
+      s.querySelector('share_type')?.textContent === '3'
+    );
+    if (!shares.length) { el.innerHTML = ''; return; }
+
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+        Links activos (${shares.length})
+      </div>
+      ${shares.map(s => {
+        const token = s.querySelector('token')?.textContent || '';
+        const url = s.querySelector('url')?.textContent || `https://nx91769.your-storageshare.de/index.php/s/${token}`;
+        const exp = s.querySelector('expiration')?.textContent;
+        const hasPass = s.querySelector('share_with')?.textContent;
+        const expTxt = exp ? `⏰ ${new Date(exp).toLocaleDateString('pt-PT')}` : '∞ Sem limite';
+        return `<div class="share-active-row">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${url}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${expTxt}${hasPass?' · 🔒':''}</div>
+          </div>
+          <button class="btn btn-s" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="navigator.clipboard.writeText('${url}').then(()=>window.toast('Copiado!','ok'))">📋</button>
+          <button class="btn btn-red" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="window.deleteShare('${token}')">🗑️</button>
+        </div>`;
+      }).join('')}`;
+  } catch(e) {}
+}
+
+async function deleteShare(token) {
+  if (!confirm('Revogar este link? Quem tiver o link deixa de conseguir aceder.')) return;
+  try {
+    await fetch(PROXY + '/nextcloud/ocs/v2.php/apps/files_sharing/api/v1/shares/' + token, {
+      method: 'DELETE',
+      headers: { 'Authorization': auth(), 'OCS-APIRequest': 'true' }
+    });
+    toast('✅ Link revogado!', 'ok');
+    if (_activeShare) _loadExistingShares(_activeShare.p);
+    document.getElementById('share-result').innerHTML = '';
+  } catch(e) { toast('Erro ao revogar', 'err'); }
+}
+
+async function nativeShareLink(url, name) {
+  if (navigator.share) {
+    try { await navigator.share({ url, title: name }); } catch(e) {}
+  } else {
+    navigator.clipboard.writeText(url).then(() => toast('Link copiado!', 'ok'));
   }
 }
 
@@ -4422,6 +4641,9 @@ function webShareCurrentFile() {
 }
 
 Object.assign(globalThis, {
+  Store,
+  createShare, deleteShare, nativeShareLink, setShareExpiry,
+  _loadExistingShares,
   addOptimisticCard, updateOptimisticCard, removeOptimisticCard,
   compressImage, webShareFile, webShareCurrentFile, loadTodayInHistory,
   _resumeDB, _fileKey,

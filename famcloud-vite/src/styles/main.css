@@ -1089,3 +1089,21 @@ body {
   transition: stroke-dashoffset .2s;
 }
 .fc-upload-ring .bg { stroke: var(--bg3); }
+
+/* ═══════════════════════════════════════
+   PARTILHA TEMPORÁRIA
+═══════════════════════════════════════ */
+.share-expiry-row {
+  display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px;
+}
+.share-exp-btn {
+  padding:5px 12px; border:1.5px solid var(--border); border-radius:20px;
+  background:var(--card); font-family:var(--font); font-size:12px;
+  font-weight:600; cursor:pointer; color:var(--text2); transition:all .15s;
+}
+.share-exp-btn:hover { border-color:var(--primary); color:var(--primary); }
+.share-exp-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+.share-active-row {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:var(--bg2); border-radius:8px; margin-bottom:6px;
+}
