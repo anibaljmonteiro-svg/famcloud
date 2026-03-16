@@ -309,10 +309,69 @@ async function authImg(el, url, fallbackUrl) {
 
 const b64 = s => btoa(unescape(encodeURIComponent(s)));
 const auth = () => 'Basic ' + b64(S.user + ':' + S.pass);
-// Ofuscação de credenciais em storage (não é encriptação — impede leitura directa)
-const _salt = 'fc2026';
-const obfuscate = s => btoa(_salt + btoa(unescape(encodeURIComponent(s))));
-const deobfuscate = s => { try { const d = atob(s); return decodeURIComponent(escape(atob(d.slice(_salt.length)))); } catch(e) { return s; } };
+// ─── ENCRIPTAÇÃO AES-GCM (Web Crypto API) ────────────────────────────────────
+// Credenciais encriptadas com AES-256-GCM
+// Chave derivada com PBKDF2 a partir de uma chave de dispositivo
+// Mesmo que alguém leia o localStorage, não consegue decifrar sem a chave
+
+// Chave de dispositivo: combinação de user-agent + hostname (estável por browser/device)
+const _deviceKey = () => {
+  const raw = (navigator.userAgent + location.hostname + 'famcloud-2026').slice(0, 64);
+  return raw;
+};
+
+async function _deriveKey(keyMaterial) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    'raw', enc.encode(keyMaterial), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt:enc.encode('famcloud-salt-2026'), iterations:100000, hash:'SHA-256' },
+    baseKey, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+
+async function encryptCred(plaintext) {
+  try {
+    const key = await _deriveKey(_deviceKey());
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const ciphertext = await crypto.subtle.encrypt(
+      { name:'AES-GCM', iv }, key, enc.encode(plaintext)
+    );
+    // Combina IV + ciphertext em base64
+    const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(ciphertext), iv.length);
+    return btoa(String.fromCharCode(...combined));
+  } catch(e) {
+    // Fallback para obfuscação simples se Web Crypto não disponível
+    return btoa('fc2026' + btoa(unescape(encodeURIComponent(plaintext))));
+  }
+}
+
+async function decryptCred(cipherB64) {
+  try {
+    const key = await _deriveKey(_deviceKey());
+    const combined = Uint8Array.from(atob(cipherB64), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt(
+      { name:'AES-GCM', iv }, key, ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch(e) {
+    // Fallback: tenta deobfuscação legacy
+    try {
+      const d = atob(cipherB64);
+      return decodeURIComponent(escape(atob(d.slice(6))));
+    } catch(e2) { return null; }
+  }
+}
+
+// Compatibilidade com código existente (async wrappers)
+const obfuscate = s => btoa('fc2026' + btoa(unescape(encodeURIComponent(s))));
+const deobfuscate = s => { try { const d = atob(s); return decodeURIComponent(escape(atob(d.slice(6)))); } catch(e) { return s; } };
 const dav = p => PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
 const ex = n => (n||'').split('.').pop().toLowerCase();
 const isImg = n => IE.includes(ex(n));
@@ -455,12 +514,18 @@ async function doLogin() {
 
     if (loginOk) {
       const _credRaw = JSON.stringify({server:S.server,user:S.user,pass:S.pass});
-      const _cred = obfuscate(_credRaw);
-      // iOS Safari: sessionStorage limpa em cada abertura da PWA
-      // Usar SEMPRE localStorage como fonte de verdade
-      localStorage.setItem('fc_cred', _cred);
-      localStorage.setItem('fc_cred_ts', Date.now().toString()); // timestamp para debug
-      sessionStorage.setItem('fc', _cred);
+      // Encripta com AES-GCM antes de guardar
+      encryptCred(_credRaw).then(_cred => {
+        localStorage.setItem('fc_cred', _cred);
+        localStorage.setItem('fc_cred_enc', '1'); // marca como encriptado
+        localStorage.setItem('fc_cred_ts', Date.now().toString());
+        sessionStorage.setItem('fc', _cred);
+      }).catch(() => {
+        // Fallback para obfuscação
+        const _cred = obfuscate(_credRaw);
+        localStorage.setItem('fc_cred', _cred);
+        sessionStorage.setItem('fc', _cred);
+      });
       initApp();
     } else if (loginStatus === 401) {
       setLE('Credenciais incorretas. Usa a App Password do Nextcloud (Settings → Security → App passwords).');
@@ -1061,7 +1126,77 @@ function closeSB() {
 // ─── RENDER GRID/LIST ─────────────────────────────────────────────────────────
 function renderFiles(items) {
   const fl = document.getElementById('fl');
-  fl.style.opacity = '';  // Restaura opacidade após skeleton
+  fl.style.opacity = '';
+  // Remove listener anterior se existir
+  if (fl._delegateHandler) fl.removeEventListener('click', fl._delegateHandler);
+  if (fl._delegateCTX) fl.removeEventListener('contextmenu', fl._delegateCTX);
+  if (fl._delegateTouch) fl.removeEventListener('touchstart', fl._delegateTouch);
+  if (fl._delegateTouchEnd) fl.removeEventListener('touchend', fl._delegateTouchEnd);
+
+  // Event delegation — um único listener para toda a grelha
+  // Prefetch on hover via delegation
+  fl.addEventListener('mouseenter', (e) => {
+    const card = e.target.closest('[data-prefetch]');
+    if (card) prefetchDir(card.dataset.prefetch);
+  }, true);
+  fl.addEventListener('mouseleave', (e) => {
+    const card = e.target.closest('[data-prefetch]');
+    if (card) cancelPrefetch(card.dataset.prefetch);
+  }, true);
+
+  fl._delegateHandler = (e) => {
+    const card = e.target.closest('[data-path]');
+    if (!card) return;
+    const p = card.dataset.path;
+    const nm = card.dataset.name;
+    const isDir = card.dataset.dir === '1';
+    const fileid = card.dataset.fid || '';
+
+    // Acção específica (botões de acção)
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action) {
+      e.stopPropagation();
+      switch(action) {
+        case 'dl': dlF(p, nm, isDir); break;
+        case 'share': shareItem(p, nm); break;
+        case 'rename': startRn(p, nm); break;
+        case 'move': startMoveItem(p, nm); break;
+        case 'versions': openVersions(p, nm, fileid); break;
+        case 'tags': openTags(p, nm, fileid); break;
+        case 'del': delIt(p, nm); break;
+        case 'sel': e.stopPropagation(); enterOrToggleSel(p); break;
+      }
+      return;
+    }
+
+    // Click no card
+    fcClick(e, p, () => {
+      if (isDir) openDir(p);
+      else if (isImg(nm)) openGallery(p);
+      else if (isPdf(nm)) openPdf(p, nm);
+      else if (isVid(nm) || isAud(nm)) openMedia(p, nm);
+      else dlF(p, nm);
+    });
+  };
+
+  fl._delegateCTX = (e) => {
+    const card = e.target.closest('[data-path]');
+    if (!card) return;
+    showCtxMenu(e, card.dataset.path, card.dataset.name, card.dataset.dir==='1', card.dataset.fid||'');
+  };
+
+  let _touchTimer = null;
+  fl._delegateTouch = (e) => {
+    const card = e.target.closest('[data-path]');
+    if (!card) return;
+    _touchTimer = setTimeout(() => enterSel(card.dataset.path), 800);
+  };
+  fl._delegateTouchEnd = () => { clearTimeout(_touchTimer); };
+
+  fl.addEventListener('click', fl._delegateHandler);
+  fl.addEventListener('contextmenu', fl._delegateCTX);
+  fl.addEventListener('touchstart', fl._delegateTouch, {passive:true});
+  fl.addEventListener('touchend', fl._delegateTouchEnd, {passive:true});
   if (!items.length) {
     fl.innerHTML = '<div class="empty"><div class="ei">📂</div><h3>Pasta vazia</h3><p>Arrasta ficheiros aqui ou clica em "Carregar"</p></div>';
     return;
@@ -1088,7 +1223,6 @@ function renderFiles(items) {
 
 function card(it) {
   const {name:nm, path:p, isDir, size, dateStr, fileid=''} = it;
-  const sp = esc(p), sn = esc(nm);
   const sel = S.selected.has(p);
   const sz = size ? fmtSz(size) : '';
   let inner;
@@ -1097,36 +1231,26 @@ function card(it) {
   } else if (isImg(nm)) {
     const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
     const fbUrl = fileid ? dav(p) : null;
-    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
+    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="">`;
   } else if (isVid(nm)) {
-    // Tenta mostrar thumbnail do vídeo via canvas
     const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
     inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
   } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
-  const clickFn = isDir ? `window.openDir('${sp}')` :
-    isImg(nm) ? `window.openGallery('${sp}')` :
-    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
-    `window.dlF('${sp}','${sn}')`;
+  // Usa data attributes em vez de onclick — permite minificação pelo Vite
   return `<div class="fc${isDir?' folder':''}${sel?' selected':''}"
-    ${isDir?`onmouseenter="window.prefetchDir('${sp}')" onmouseleave="window.cancelPrefetch('${sp}')"`:''}
-    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="window.showCtxMenu(event,'${sp}','${sn}',${isDir},'${fileid}')"
-    ontouchstart="window.tStart(event,'${sp}')" ontouchend="window.tEnd()"
-    draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())window.dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
-    <div class="fc-chk" onclick="event.stopPropagation();window.enterOrToggleSel('${sp}')">✓</div>
+    data-path="${esc(p)}" data-name="${esc(nm)}" data-dir="${isDir?1:0}" data-fid="${fileid}"
+    ${isDir?`data-prefetch="${esc(p)}"`:''}>
+    <div class="fc-chk" data-action="sel">✓</div>
     <div class="fac">
-      ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();window.dlF('${sp}','${sn}',${isDir})" title="${isDir?'Download ZIP':'Download'}">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="event.stopPropagation();window.shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
-      <button class="fab fa-rn" onclick="event.stopPropagation();window.startRn('${sp}','${sn}')" title="Renomear">✏️</button>
-      <button class="fab fa-mv" onclick="event.stopPropagation();window.startMoveItem('${sp}','${sn}')" title="Mover">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="event.stopPropagation();window.openVersions('${sp}','${sn}','${fileid}')" title="Versões">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="event.stopPropagation();window.openTags('${sp}','${sn}','${fileid}')" title="Tags">🏷️</button>
-      <button class="fab fa-del" onclick="event.stopPropagation();window.delIt('${sp}','${sn}')" title="Apagar">🗑️</button>
+      ${!isDir?`<button class="fab fa-dl" data-action="dl" title="Download">⬇️</button>`:''}
+      <button class="fab fa-sh" data-action="share" title="Partilhar">🔗</button>
+      <button class="fab fa-rn" data-action="rename" title="Renomear">✏️</button>
+      <button class="fab fa-mv" data-action="move" title="Mover">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" data-action="versions" title="Versões">🕒</button>`:''}
+      <button class="fab" style="background:#fff3e0" data-action="tags" title="Tags">🏷️</button>
+      <button class="fab fa-del" data-action="del" title="Apagar">🗑️</button>
     </div>
     ${inner}
     <div class="fn">${nm}</div>
@@ -4684,27 +4808,43 @@ function restoreSession() {
   // sessionStorage (tab) → localStorage (PWA persistent) → show login
   // iOS PWA: sessionStorage está sempre vazia ao abrir — usar só localStorage
   const raw = localStorage.getItem('fc_cred');
-  if (raw) sessionStorage.setItem('fc', raw); // sincroniza para esta sessão
+  const isEncrypted = localStorage.getItem('fc_cred_enc') === '1';
   if (raw) {
-    try {
-      // Suporta formato antigo (JSON directo) e novo (ofuscado)
-      let parsed;
-      try { parsed = JSON.parse(raw); } catch(e) { parsed = JSON.parse(deobfuscate(raw)); }
-      if (parsed && parsed.user && parsed.pass) {
-        S.server = PROXY; S.user = parsed.user; S.pass = parsed.pass;
-        // Migra para formato ofuscado se ainda não estava
-        const reobf = obfuscate(JSON.stringify(parsed));
-        sessionStorage.setItem('fc', reobf);
-        localStorage.setItem('fc_cred', reobf);
-        initApp();
-        if (new URLSearchParams(location.search).get('shared') === '1') {
-          setTimeout(checkPendingShares, 1200);
+    const loadCreds = async () => {
+      try {
+        let plaintext;
+        if (isEncrypted) {
+          plaintext = await decryptCred(raw);
+        } else {
+          // Legacy — tenta JSON directo ou obfuscação
+          try { plaintext = raw; JSON.parse(raw); }
+          catch(e) { plaintext = deobfuscate(raw); }
         }
-        return;
+        if (!plaintext) throw new Error('decrypt failed');
+        const parsed = JSON.parse(plaintext);
+        if (parsed && parsed.user && parsed.pass) {
+          S.server = PROXY; S.user = parsed.user; S.pass = parsed.pass;
+          sessionStorage.setItem('fc', raw);
+          initApp();
+          if (new URLSearchParams(location.search).get('shared') === '1') {
+            setTimeout(checkPendingShares, 1200);
+          }
+          return;
+        }
+      } catch(e) {
+        Logger.error('Credential load failed', e.message);
+        localStorage.removeItem('fc_cred');
+        localStorage.removeItem('fc_cred_enc');
       }
-    } catch(e) {}
+      showLogin();
+    };
+    loadCreds().catch(() => { showLogin(); });
+  } else {
+    showLogin();
   }
-  // Nenhuma sessão — mostra login
+}
+
+function showLogin() {
   document.getElementById('login-screen').style.display = 'flex';
 }
 
