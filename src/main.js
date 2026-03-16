@@ -1886,7 +1886,7 @@ function ssShow() {
     vid.pause();
     vid.src = '';
     // Carregar vídeo directamente do Nextcloud com auth
-    fetch(NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + it.path, {
+    fetch(dav(it.path), {
       headers: { 'Authorization': auth() }
     }).then(r => r.blob()).then(blob => {
       const blobUrl = URL.createObjectURL(blob);
