@@ -934,17 +934,17 @@ body {
 <div id="app">
   <!-- TOPBAR -->
   <div class="topbar">
-    <button class="t-ic-btn" onclick="toggleSB()" title="Pastas">📂</button>
-    <div class="t-logo" onclick="goHome()">
+    <button class="t-ic-btn" onclick="window.toggleSB()" title="Pastas">📂</button>
+    <div class="t-logo" onclick="window.goHome()">
       <div class="t-logo-ic">☁️</div>
       <h1>FamCloud</h1>
     </div>
     <div class="t-bc" id="bc"></div>
     <div class="t-right">
       <span class="offline-pill" id="offline-pill">Offline</span>
-      <button class="t-ic-btn" onclick="openSearch()" title="Pesquisar (Ctrl+F)">🔍</button>
+      <button class="t-ic-btn" onclick="window.openSearch()" title="Pesquisar (Ctrl+F)">🔍</button>
       <div class="udrop-wrap">
-        <button class="ubtn" id="ubtn" onclick="toggleDrop()">
+        <button class="ubtn" id="ubtn" onclick="window.toggleDrop()">
           <div class="uav" id="uav"><span id="uav-l"></span></div>
           <span class="un" id="uname-top"></span>▾
         </button>
@@ -953,21 +953,21 @@ body {
             <div class="udrop-nm" id="drop-nm"></div>
             <div class="udrop-sub">FamCloud · Nextcloud</div>
           </div>
-          <button class="udrop-item" onclick="openProfile();closeDrop()"><span class="di">👤</span>Editar perfil &amp; foto</button>
-          <button class="udrop-item" onclick="openPassM();closeDrop()"><span class="di">🔒</span>Alterar palavra-passe</button>
+          <button class="udrop-item" onclick="window.openProfile();window.closeDrop()"><span class="di">👤</span>Editar perfil &amp; foto</button>
+          <button class="udrop-item" onclick="window.openPassM();window.closeDrop()"><span class="di">🔒</span>Alterar palavra-passe</button>
           <div class="udrop-sep"></div>
-          <button class="udrop-item" onclick="openTrash();closeDrop()"><span class="di">🗑️</span>Lixo &amp; apagar permanente</button>
-          <button class="udrop-item" onclick="openActivity();closeDrop()"><span class="di">📋</span>Actividade recente</button>
-          <button class="udrop-item" onclick="openTagFilter();closeDrop()"><span class="di">🏷️</span>Filtrar por tags</button>
-          <button class="udrop-item" onclick="openQuota();closeDrop()"><span class="di">💾</span>Quota por utilizador</button>
+          <button class="udrop-item" onclick="window.openTrash();window.closeDrop()"><span class="di">🗑️</span>Lixo &amp; apagar permanente</button>
+          <button class="udrop-item" onclick="window.openActivity();window.closeDrop()"><span class="di">📋</span>Actividade recente</button>
+          <button class="udrop-item" onclick="window.openTagFilter();window.closeDrop()"><span class="di">🏷️</span>Filtrar por tags</button>
+          <button class="udrop-item" onclick="window.openQuota();window.closeDrop()"><span class="di">💾</span>Quota por utilizador</button>
           <div class="udrop-sep"></div>
           <!-- THEME QUICK SWITCHER -->
           <div style="padding:6px 16px 2px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Tema</div>
           <div class="theme-dots" id="theme-dots"></div>
-          <button class="udrop-item" onclick="showM('theme');closeDrop()"><span class="di">🎨</span>Escolher tema</button>
+          <button class="udrop-item" onclick="window.showM('theme');window.closeDrop()"><span class="di">🎨</span>Escolher tema</button>
           <div class="udrop-sep"></div>
-          <button class="udrop-item" id="install-btn" style="display:none" onclick="installPWA();closeDrop()"><span class="di">📲</span>Instalar app</button>
-          <button class="udrop-item red" onclick="doLogout()"><span class="di">🚪</span>Sair</button>
+          <button class="udrop-item" id="install-btn" style="display:none" onclick="window.installPWA();window.closeDrop()"><span class="di">📲</span>Instalar app</button>
+          <button class="udrop-item red" onclick="window.doLogout()"><span class="di">🚪</span>Sair</button>
         </div>
       </div>
     </div>
@@ -977,12 +977,12 @@ body {
   <div class="sel-bar" id="sel-bar">
     <span class="sel-count" id="sel-count">0 selecionados</span>
     <div class="sel-actions">
-      <button class="sel-btn" onclick="selAll()">☑️ Todos</button>
-      <button class="sel-btn" onclick="bulkDownload()">⬇️ Download</button>
-      <button class="sel-btn" onclick="bulkMoveOpen()">📦 Mover</button>
-      <button class="sel-btn sel-del" onclick="bulkDelete()">🗑️ Apagar</button>
+      <button class="sel-btn" onclick="window.selAll()">☑️ Todos</button>
+      <button class="sel-btn" onclick="window.bulkDownload()">⬇️ Download</button>
+      <button class="sel-btn" onclick="window.bulkMoveOpen()">📦 Mover</button>
+      <button class="sel-btn sel-del" onclick="window.bulkDelete()">🗑️ Apagar</button>
     </div>
-    <button class="sel-cancel" onclick="clearSel()">✕ Cancelar</button>
+    <button class="sel-cancel" onclick="window.clearSel()">✕ Cancelar</button>
   </div>
 
   <!-- STORAGE BAR -->
@@ -1010,23 +1010,23 @@ body {
   <!-- MAIN -->
     <div class="main" id="main">
       <div class="toolbar">
-        <button class="btn btn-g" id="btn-back" onclick="goBack()" style="display:none">← Voltar</button>
+        <button class="btn btn-g" id="btn-back" onclick="window.goBack()" style="display:none">← Voltar</button>
         <button class="btn btn-p" onclick="document.getElementById('ufi').click()">⬆️ Carregar</button>
         <button class="btn btn-p" id="cam-btn" style="display:none" onclick="document.getElementById('cam-input').click()">📷 Câmara</button>
         <button class="btn btn-s" onclick="document.getElementById('folder-ufi').click()" title="Upload de pasta inteira">📁 Pasta</button>
-        <button class="btn btn-s" onclick="showM('folder');setTimeout(()=>document.getElementById('fi').focus(),80)">➕ Nova pasta</button>
-        <button class="btn btn-s" id="btn-slideshow" onclick="startSlideshowFromFolder()" title="Slideshow das fotos desta pasta" style="display:none">▶️ Slideshow</button>
+        <button class="btn btn-s" onclick="window.showM('folder');setTimeout(()=>document.getElementById('fi').focus(),80)">➕ Nova pasta</button>
+        <button class="btn btn-s" id="btn-slideshow" onclick="window.startSlideshowFromFolder()" title="Slideshow das fotos desta pasta" style="display:none">▶️ Slideshow</button>
         <div class="vtog">
-          <button class="vbtn on" id="vg" onclick="setV('grid')" title="Grelha">⊞</button>
-          <button class="vbtn" id="vl" onclick="setV('list')" title="Lista">☰</button>
+          <button class="vbtn on" id="vg" onclick="window.setV('grid')" title="Grelha">⊞</button>
+          <button class="vbtn" id="vl" onclick="window.setV('list')" title="Lista">☰</button>
         </div>
       </div>
       <div class="sort-bar">
         <span class="sort-lbl">Ordenar:</span>
-        <button class="sort-btn on" id="s-name" onclick="setSort('name')">Nome</button>
-        <button class="sort-btn" id="s-date" onclick="setSort('date')">Data</button>
-        <button class="sort-btn" id="s-size" onclick="setSort('size')">Tamanho</button>
-        <button class="sort-btn" id="s-dir" onclick="toggleSortDir()">↑</button>
+        <button class="sort-btn on" id="s-name" onclick="window.setSort('name')">Nome</button>
+        <button class="sort-btn" id="s-date" onclick="window.setSort('date')">Data</button>
+        <button class="sort-btn" id="s-size" onclick="window.setSort('size')">Tamanho</button>
+        <button class="sort-btn" id="s-dir" onclick="window.toggleSortDir()">↑</button>
       </div>
       <div class="dz" id="dz" onclick="document.getElementById('ufi').click()">
         <p>🖱️ Clica para carregar &nbsp;·&nbsp; <strong>Arrasta ficheiros ou pastas aqui</strong> &nbsp;·&nbsp; Longo toque para selecionar</p>
@@ -1040,27 +1040,27 @@ body {
     </div>
 
   <!-- FAB UPLOAD (mobile) -->
-  <div class="fab-backdrop" id="fab-bd" onclick="closeFab()"></div>
+  <div class="fab-backdrop" id="fab-bd" onclick="window.closeFab()"></div>
   <div class="fab-wrap" id="fab-wrap">
-    <button class="fab-main" id="fab-main" onclick="toggleFab()">＋</button>
+    <button class="fab-main" id="fab-main" onclick="window.toggleFab()">＋</button>
     <div class="fab-menu" id="fab-menu">
-      <div class="fab-item" onclick="closeFab();document.getElementById('gallery-input').click()">
+      <div class="fab-item" onclick="window.closeFab();document.getElementById('gallery-input').click()">
         <span class="fi-ic">🖼️</span>
         <span class="fi-lbl">Galeria<span class="fi-sub">Fotos e vídeos</span></span>
       </div>
-      <div class="fab-item" onclick="closeFab();document.getElementById('cam-input').click()">
+      <div class="fab-item" onclick="window.closeFab();document.getElementById('cam-input').click()">
         <span class="fi-ic">📷</span>
         <span class="fi-lbl">Câmara<span class="fi-sub">Tirar foto agora</span></span>
       </div>
-      <div class="fab-item" onclick="closeFab();document.getElementById('doc-input').click()">
+      <div class="fab-item" onclick="window.closeFab();document.getElementById('doc-input').click()">
         <span class="fi-ic">📄</span>
         <span class="fi-lbl">Documentos<span class="fi-sub">PDF, Word, Excel...</span></span>
       </div>
-      <div class="fab-item" onclick="closeFab();document.getElementById('ufi').click()">
+      <div class="fab-item" onclick="window.closeFab();document.getElementById('ufi').click()">
         <span class="fi-ic">📂</span>
         <span class="fi-lbl">Qualquer ficheiro<span class="fi-sub">Todos os tipos</span></span>
       </div>
-      <div class="fab-item" onclick="closeFab();document.getElementById('folder-ufi').click()">
+      <div class="fab-item" onclick="window.closeFab();document.getElementById('folder-ufi').click()">
         <span class="fi-ic">📁</span>
         <span class="fi-lbl">Pasta inteira<span class="fi-sub">Upload de pasta com ficheiros</span></span>
       </div>
@@ -1073,10 +1073,10 @@ body {
   <div class="app-section" id="sec-calendar">
     <div class="cal-section">
       <div class="cal-toolbar">
-        <button class="cal-nav" onclick="calNav(-1)">‹</button>
+        <button class="cal-nav" onclick="window.calNav(-1)">‹</button>
         <div class="cal-month" id="cal-month-lbl"></div>
-        <button class="cal-nav" onclick="calNav(1)">›</button>
-        <button class="btn btn-p" style="padding:7px 13px;font-size:12px" onclick="showM('newevent')">+ Evento</button>
+        <button class="cal-nav" onclick="window.calNav(1)">›</button>
+        <button class="btn btn-p" style="padding:7px 13px;font-size:12px" onclick="window.showM('newevent')">+ Evento</button>
       </div>
       <div class="cal-body" id="cal-body">
         <div class="loading"><div class="spin"></div> A carregar calendários...</div>
@@ -1090,7 +1090,7 @@ body {
       <div class="notes-list-col">
         <div class="notes-toolbar">
           <input class="notes-search" id="notes-search" placeholder="Pesquisar notas..." oninput="filterNotes(this.value)">
-          <button class="btn btn-p" style="padding:7px 11px;font-size:13px;flex-shrink:0" onclick="newNote()">+</button>
+          <button class="btn btn-p" style="padding:7px 11px;font-size:13px;flex-shrink:0" onclick="window.newNote()">+</button>
         </div>
         <div class="notes-list" id="notes-list">
           <div class="loading"><div class="spin"></div></div>
@@ -1105,9 +1105,9 @@ body {
           <div class="notes-ed-top">
             <input class="notes-title-inp" id="notes-title" placeholder="Título da nota..." oninput="noteChanged()">
             <input class="mi" id="notes-cat" placeholder="Categoria" style="width:120px;margin:0;font-size:13px;padding:8px 10px" oninput="noteChanged()">
-            <button class="btn btn-p" style="padding:7px 13px;font-size:12px" onclick="saveNote()">💾</button>
-            <button class="btn btn-red" style="padding:7px 11px;font-size:12px;flex-shrink:0" onclick="deleteNote()">🗑️</button>
-            <button class="btn btn-g" id="notes-back-btn" style="display:none;padding:7px 11px;font-size:12px" onclick="notesBack()">← Voltar</button>
+            <button class="btn btn-p" style="padding:7px 13px;font-size:12px" onclick="window.saveNote()">💾</button>
+            <button class="btn btn-red" style="padding:7px 11px;font-size:12px;flex-shrink:0" onclick="window.deleteNote()">🗑️</button>
+            <button class="btn btn-g" id="notes-back-btn" style="display:none;padding:7px 11px;font-size:12px" onclick="window.notesBack()">← Voltar</button>
           </div>
           <textarea class="notes-content" id="notes-content" placeholder="Escreve aqui..." oninput="noteChanged()"></textarea>
         </div>
@@ -1120,7 +1120,7 @@ body {
     <div class="wx-wrap">
       <div class="wx-loc-row">
         <input class="wx-loc-inp" id="wx-city-inp" placeholder="Cidade (ex: Lisboa)" value="Lisboa">
-        <button class="wx-refresh" onclick="loadWeather()">🔍 Pesquisar</button>
+        <button class="wx-refresh" onclick="window.loadWeather()">🔍 Pesquisar</button>
       </div>
       <div id="wx-content">
         <div class="loading"><div class="spin"></div> A obter clima...</div>
@@ -1130,16 +1130,16 @@ body {
 
   <!-- BOTTOM NAV -->
   <nav class="bnav" id="bnav">
-    <button class="bnt active" id="bnt-files" onclick="switchTab('files')">
+    <button class="bnt active" id="bnt-files" onclick="window.switchTab('files')">
       <span class="bnt-ic">📂</span><span class="bnt-lbl">Ficheiros</span>
     </button>
-    <button class="bnt" id="bnt-calendar" onclick="switchTab('calendar')">
+    <button class="bnt" id="bnt-calendar" onclick="window.switchTab('calendar')">
       <span class="bnt-ic">📅</span><span class="bnt-lbl">Calendário</span>
     </button>
-    <button class="bnt" id="bnt-notes" onclick="switchTab('notes')">
+    <button class="bnt" id="bnt-notes" onclick="window.switchTab('notes')">
       <span class="bnt-ic">📝</span><span class="bnt-lbl">Notas</span>
     </button>
-    <button class="bnt" id="bnt-weather" onclick="switchTab('weather')">
+    <button class="bnt" id="bnt-weather" onclick="window.switchTab('weather')">
       <span class="bnt-ic">🌤️</span><span class="bnt-lbl">Clima</span>
     </button>
   </nav>
@@ -1149,12 +1149,12 @@ body {
 <!-- ═══ OVERLAYS ═══ -->
 
 <!-- SEARCH -->
-<div class="search-ov" id="search-ov" onclick="if(event.target===this)closeSearch()">
+<div class="search-ov" id="search-ov" onclick="if(event.target===this)window.closeSearch()">
   <div class="search-box">
     <div class="search-input-wrap">
       <span>🔍</span>
       <input type="text" id="search-inp" placeholder="Pesquisar ficheiros e pastas..." oninput="schedSearch(this.value)">
-      <button onclick="closeSearch()">✕</button>
+      <button onclick="window.closeSearch()">✕</button>
     </div>
     <div class="search-results" id="search-results"><div class="sr-hint">Escreve para pesquisar em todos os ficheiros</div></div>
   </div>
@@ -1163,12 +1163,12 @@ body {
 <!-- GALLERY -->
 <div class="gallery-ov" id="gallery-ov">
   <div class="gallery-top">
-    <button class="gallery-close" onclick="closeGallery()">✕</button>
+    <button class="gallery-close" onclick="window.closeGallery()">✕</button>
     <span class="gallery-nm" id="gallery-nm"></span>
     <span class="gallery-count" id="gallery-count"></span>
   </div>
   <div class="gallery-viewer" id="gallery-viewer">
-    <button class="gallery-prev" onclick="galleryNav(-1)">‹</button>
+    <button class="gallery-prev" onclick="window.galleryNav(-1)">‹</button>
     <img class="gallery-img" id="gallery-img" src="" alt="">
     <div class="gallery-loading" id="gallery-loading" style="display:none">
       <div class="spin" style="width:32px;height:32px;border-width:3px;border-color:rgba(255,255,255,.3);border-top-color:#fff"></div>
@@ -1179,11 +1179,11 @@ body {
       <div style="font-size:48px">🖼️</div>
       <div>Imagem não disponível</div>
     </div>
-    <button class="gallery-next" onclick="galleryNav(1)">›</button>
+    <button class="gallery-next" onclick="window.galleryNav(1)">›</button>
     <div class="gallery-actions">
       <button class="gallery-btn" id="gallery-dl">⬇️ Download</button>
       <button class="gallery-btn" id="gallery-sh">🔗 Partilhar</button>
-      <button class="gallery-btn" onclick="startSlideshow()">▶️ Slideshow</button>
+      <button class="gallery-btn" onclick="window.startSlideshow()">▶️ Slideshow</button>
     </div>
   </div>
   <div class="gallery-strip" id="gallery-strip"></div>
@@ -1200,10 +1200,10 @@ body {
     <div class="slideshow-sub" id="ss-sub"></div>
   </div>
   <div class="slideshow-ctrl">
-    <button class="slideshow-btn" onclick="ssPause()" id="ss-pause-btn">⏸ Pausar</button>
-    <button class="slideshow-btn" onclick="ssSpeed()" id="ss-speed-btn">⏱ 5s</button>
-    <button class="slideshow-btn" onclick="ssInfo()" id="ss-info-btn">ℹ️ Info</button>
-    <button class="slideshow-btn" onclick="closeSlideshow()">✕ Fechar</button>
+    <button class="slideshow-btn" onclick="window.ssPause()" id="ss-pause-btn">⏸ Pausar</button>
+    <button class="slideshow-btn" onclick="window.ssSpeed()" id="ss-speed-btn">⏱ 5s</button>
+    <button class="slideshow-btn" onclick="window.ssInfo()" id="ss-info-btn">ℹ️ Info</button>
+    <button class="slideshow-btn" onclick="window.closeSlideshow()">✕ Fechar</button>
   </div>
 </div>
 
@@ -1211,12 +1211,12 @@ body {
 <div class="pdf-ov" id="pdf-ov">
   <div class="pdf-top">
     <span class="pdf-nm" id="pdf-nm"></span>
-    <button class="pdf-close" onclick="closePdf()">✕</button>
+    <button class="pdf-close" onclick="window.closePdf()">✕</button>
   </div>
   <div class="pdf-toolbar">
-    <button class="pdf-tbtn" onclick="pdfNav(-1)">‹ Anterior</button>
+    <button class="pdf-tbtn" onclick="window.pdfNav(-1)">‹ Anterior</button>
     <span class="pdf-page-info" id="pdf-info">1 / 1</span>
-    <button class="pdf-tbtn" onclick="pdfNav(1)">Seguinte ›</button>
+    <button class="pdf-tbtn" onclick="window.pdfNav(1)">Seguinte ›</button>
     <button class="pdf-tbtn" id="pdf-dl-btn">⬇️ Download</button>
   </div>
   <div class="pdf-content" id="pdf-content"></div>
@@ -1236,9 +1236,15 @@ body {
       <div class="prof-nm" id="prof-nm"></div>
       <div style="font-size:12px;color:var(--text2)" id="av-status"></div>
     </div>
-    <p style="font-size:13px;color:var(--text2);text-align:center;line-height:1.6">Clica na foto para alterar · JPG, PNG, GIF, WebP</p>
-    <div class="mac" style="margin-top:20px">
-      <button class="btn btn-s" onclick="hideM('profile')">Fechar</button>
+    <span class="slbl">Avatares rápidos</span>
+    <div id="av-presets" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>
+    <span class="slbl">Nome de exibição</span>
+    <input class="mi" type="text" id="prof-display-nm" placeholder="O teu nome" style="margin-bottom:8px">
+    <div class="ok-msg" id="prof-ok">✅ Perfil actualizado!</div>
+    <div class="err-msg" id="prof-err"></div>
+    <div class="mac" style="margin-top:8px">
+      <button class="btn btn-s" onclick="window.hideM('profile')">Fechar</button>
+      <button class="btn btn-p" onclick="window.window.saveProfile()">💾 Guardar</button>
     </div>
   </div>
 </div>
@@ -1256,8 +1262,8 @@ body {
     <div class="ok-msg" id="pw-ok">✅ Palavra-passe alterada com sucesso!</div>
     <div class="err-msg" id="pw-err"></div>
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('pass')">Cancelar</button>
-      <button class="btn btn-p" id="pw-btn" onclick="changePass()">Guardar</button>
+      <button class="btn btn-s" onclick="window.hideM('pass')">Cancelar</button>
+      <button class="btn btn-p" id="pw-btn" onclick="window.changePass()">Guardar</button>
     </div>
   </div>
 </div>
@@ -1268,8 +1274,8 @@ body {
     <div class="mh">📁 Nova pasta</div>
     <input class="mi" type="text" id="fi" placeholder="Nome da pasta" onkeydown="if(event.key==='Enter')createFolder()">
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('folder')">Cancelar</button>
-      <button class="btn btn-p" onclick="createFolder()">Criar</button>
+      <button class="btn btn-s" onclick="window.hideM('folder')">Cancelar</button>
+      <button class="btn btn-p" onclick="window.createFolder()">Criar</button>
     </div>
   </div>
 </div>
@@ -1280,8 +1286,8 @@ body {
     <div class="mh">✏️ Renomear</div>
     <input class="mi" type="text" id="ri" placeholder="Novo nome" onkeydown="if(event.key==='Enter')doRename()">
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('rename')">Cancelar</button>
-      <button class="btn btn-p" onclick="doRename()">Guardar</button>
+      <button class="btn btn-s" onclick="window.hideM('rename')">Cancelar</button>
+      <button class="btn btn-p" onclick="window.doRename()">Guardar</button>
     </div>
   </div>
 </div>
@@ -1293,8 +1299,8 @@ body {
     <p id="move-desc" style="font-size:13px;color:var(--text2);margin-bottom:14px"></p>
     <select class="msel" id="move-sel"></select>
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('move')">Cancelar</button>
-      <button class="btn btn-p" onclick="doMove()">Mover</button>
+      <button class="btn btn-s" onclick="window.hideM('move')">Cancelar</button>
+      <button class="btn btn-p" onclick="window.doMove()">Mover</button>
     </div>
   </div>
 </div>
@@ -1306,7 +1312,7 @@ body {
     <p id="share-desc" style="font-size:13px;color:var(--text2);margin-bottom:16px"></p>
     <div id="share-content"><div class="loading" style="padding:24px"><div class="spin"></div></div></div>
     <div class="sep"></div>
-    <div class="mac"><button class="btn btn-s" onclick="hideM('share')">Fechar</button></div>
+    <div class="mac"><button class="btn btn-s" onclick="window.hideM('share')">Fechar</button></div>
   </div>
 </div>
 
@@ -1318,8 +1324,8 @@ body {
     <div id="trash-list"><div class="loading"><div class="spin"></div></div></div>
     <div class="sep"></div>
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('trash')">Fechar</button>
-      <button class="btn btn-red" onclick="emptyTrash()">🗑️ Esvaziar tudo</button>
+      <button class="btn btn-s" onclick="window.hideM('trash')">Fechar</button>
+      <button class="btn btn-red" onclick="window.emptyTrash()">🗑️ Esvaziar tudo</button>
     </div>
   </div>
 </div>
@@ -1329,7 +1335,7 @@ body {
   <div class="modal">
     <div class="mh">📋 Actividade recente</div>
     <div id="act-list"><div class="loading"><div class="spin"></div></div></div>
-    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="hideM('activity')">Fechar</button></div>
+    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('activity')">Fechar</button></div>
   </div>
 </div>
 
@@ -1338,7 +1344,7 @@ body {
   <div class="modal">
     <div class="mh">💾 Quota por utilizador</div>
     <div id="quota-list"><div class="loading"><div class="spin"></div></div></div>
-    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="hideM('quota')">Fechar</button></div>
+    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('quota')">Fechar</button></div>
   </div>
 </div>
 
@@ -1347,7 +1353,7 @@ body {
   <div class="modal">
     <div class="mh">🎨 Escolher tema</div>
     <div class="theme-grid" id="theme-grid"></div>
-    <div class="mac"><button class="btn btn-s" onclick="hideM('theme')">Fechar</button></div>
+    <div class="mac"><button class="btn btn-s" onclick="window.hideM('theme')">Fechar</button></div>
   </div>
 </div>
 
@@ -1371,8 +1377,8 @@ body {
     <input class="mi" type="text" id="ev-notes" placeholder="Notas opcionais">
     <div class="err-msg" id="ev-err"></div>
     <div class="mac">
-      <button class="btn btn-s" onclick="hideM('newevent')">Cancelar</button>
-      <button class="btn btn-p" onclick="submitNewEvent()">Criar evento</button>
+      <button class="btn btn-s" onclick="window.hideM('newevent')">Cancelar</button>
+      <button class="btn btn-p" onclick="window.submitNewEvent()">Criar evento</button>
     </div>
   </div>
 </div>
@@ -1383,7 +1389,7 @@ body {
     <div class="mh">🕒 Versões anteriores</div>
     <p id="ver-fname" style="font-size:13px;color:var(--text2);margin-bottom:14px"></p>
     <div id="ver-list"><div class="loading"><div class="spin"></div></div></div>
-    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="hideM('versions')">Fechar</button></div>
+    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('versions')">Fechar</button></div>
   </div>
 </div>
 
@@ -1397,11 +1403,11 @@ body {
     <span class="slbl">Criar nova tag</span>
     <div class="tag-new-row">
       <input class="mi" type="text" id="tag-new-inp" placeholder="Nome da tag" style="margin:0;flex:1">
-      <button class="btn btn-p" style="flex-shrink:0" onclick="createAndAssignTag()">Criar</button>
+      <button class="btn btn-p" style="flex-shrink:0" onclick="window.createAndAssignTag()">Criar</button>
     </div>
     <span class="slbl">Tags disponíveis</span>
     <div class="tags-available" id="tags-available"></div>
-    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="hideM('tags')">Fechar</button></div>
+    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('tags')">Fechar</button></div>
   </div>
 </div>
 
@@ -1409,7 +1415,7 @@ body {
 <div class="uprog" id="uprog">
   <div class="uprog-hd">
     <span class="uprog-title" id="uprog-title">⬆️ A carregar...</span>
-    <button class="uprog-cancel" onclick="cancelUpload()">Cancelar tudo</button>
+    <button class="uprog-cancel" onclick="window.cancelUpload()">Cancelar tudo</button>
   </div>
   <div id="uprog-queue"></div>
   <div class="uprog-bg" style="margin-top:6px"><div class="uprog-bar" id="uprog-bar"></div></div>
