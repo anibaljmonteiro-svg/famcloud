@@ -1031,3 +1031,30 @@ body {
 .ctx-item .ctx-ic.dl-red { background: #ffebee; }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .ctx-header { padding: 6px 12px 4px; font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ═══════════════════════════════════════
+   HOJE NA HISTÓRIA WIDGET
+═══════════════════════════════════════ */
+.today-card {
+  display:flex; align-items:center; gap:14px;
+  background:var(--card); border-radius:var(--radius);
+  padding:12px 14px; cursor:pointer; border:1.5px solid var(--border);
+  box-shadow:var(--shadow); transition:all .2s; overflow:hidden;
+  margin-bottom:2px;
+}
+.today-card:hover { box-shadow:var(--shadow-hover); border-color:var(--primary); }
+.today-img-wrap { position:relative; flex-shrink:0; }
+.today-img {
+  width:72px; height:72px; object-fit:cover; border-radius:10px;
+  display:block;
+}
+.today-badge {
+  position:absolute; bottom:-4px; left:50%; transform:translateX(-50%);
+  background:var(--gradient); color:#fff; font-size:9px; font-weight:700;
+  padding:2px 7px; border-radius:8px; white-space:nowrap;
+  box-shadow:0 2px 8px rgba(0,0,0,.2);
+}
+.today-info { flex:1; min-width:0; }
+.today-title { font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:.6px; margin-bottom:3px; }
+.today-sub { font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px; }
+.today-meta { font-size:11px; color:var(--text3); }

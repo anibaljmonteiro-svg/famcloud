@@ -478,9 +478,17 @@ function setLE(m) { const e = document.getElementById('lerr'); e.textContent = m
 function initApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
+  // Handle PWA shortcuts
+  const urlParams = new URLSearchParams(window.location.search);
+  const action = urlParams.get('action');
+  if (action === 'upload') setTimeout(() => document.getElementById('ufi').click(), 500);
+  else if (action === 'camera') setTimeout(() => document.getElementById('cam-input').click(), 500);
+  else if (action === 'search') setTimeout(() => openSearch(), 500);
   document.getElementById('uname-top').textContent = S.user;
   document.getElementById('drop-nm').textContent = S.user;
   document.getElementById('uav-l').textContent = S.user.charAt(0).toUpperCase();
+  // Carrega widget "Hoje na História"
+  setTimeout(() => loadTodayInHistory(), 2000);
   // Restaura emoji avatar se existir
   const savedEmoji = localStorage.getItem('fc_emoji_av_' + S.user);
   if (savedEmoji) {
@@ -1673,39 +1681,121 @@ function getPrefetched(path) {
 // ─── CHUNKED UPLOAD ──────────────────────────────────────────────────────────
 const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB por chunk
 
+// ─── RESUME UPLOAD STATE ─────────────────────────────────────────────────────
+// Guarda estado de uploads no IndexedDB para retomar após falha de rede
+const _resumeDB = (() => {
+  let db = null;
+  const open = () => new Promise((res, rej) => {
+    if (db) return res(db);
+    const r = indexedDB.open('fc-resume-v1', 1);
+    r.onupgradeneeded = e => {
+      e.target.result.createObjectStore('uploads', { keyPath: 'fileKey' });
+    };
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror = () => rej(r.error);
+  });
+  return {
+    async get(key) {
+      try {
+        const d = await open();
+        return new Promise(res => {
+          const req = d.transaction('uploads','readonly').objectStore('uploads').get(key);
+          req.onsuccess = () => res(req.result || null);
+          req.onerror = () => res(null);
+        });
+      } catch(e) { return null; }
+    },
+    async save(key, uploadId, lastChunk, totalChunks, destPath) {
+      try {
+        const d = await open();
+        d.transaction('uploads','readwrite').objectStore('uploads')
+          .put({ fileKey:key, uploadId, lastChunk, totalChunks, destPath, ts:Date.now() });
+      } catch(e) {}
+    },
+    async del(key) {
+      try {
+        const d = await open();
+        d.transaction('uploads','readwrite').objectStore('uploads').delete(key);
+      } catch(e) {}
+    }
+  };
+})();
+
+// Gera chave única para um ficheiro (nome + tamanho + data modificação)
+function _fileKey(file, destPath) {
+  return `${file.name}:${file.size}:${file.lastModified}:${destPath}`;
+}
+
 async function uploadChunked(file, destPath, onProgress) {
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  const uploadId = Date.now() + '-' + Math.random().toString(36).slice(2);
+  const fileKey = _fileKey(file, destPath);
+
+  // Verifica se existe upload em curso para este ficheiro
+  let uploadId, startChunk = 0;
+  const pending = await _resumeDB.get(fileKey);
+
+  if (pending && (Date.now() - pending.ts) < 24 * 60 * 60 * 1000) {
+    // Upload existente — tenta retomar
+    uploadId = pending.uploadId;
+    startChunk = pending.lastChunk + 1;
+    const chunkDir = NC + '/remote.php/dav/uploads/' + encodeURIComponent(S.user) + '/' + uploadId;
+    // Verifica se a pasta ainda existe no servidor
+    const check = await fetch(chunkDir, {
+      method: 'PROPFIND', headers: { 'Authorization': auth(), 'Depth': '0' }
+    }).catch(() => null);
+    if (!check || !check.ok) {
+      // Pasta expirou — começa de novo
+      startChunk = 0;
+      uploadId = null;
+    } else {
+      toast(`⏭️ A retomar upload de "${file.name}" a partir do chunk ${startChunk}...`, '');
+    }
+  }
+
+  if (!uploadId) {
+    // Novo upload — cria pasta temporária no Nextcloud
+    uploadId = Date.now() + '-' + Math.random().toString(36).slice(2);
+    const chunkDir = NC + '/remote.php/dav/uploads/' + encodeURIComponent(S.user) + '/' + uploadId;
+    await fetch(chunkDir, { method: 'MKCOL', headers: { 'Authorization': auth() } });
+  }
+
   const chunkDir = NC + '/remote.php/dav/uploads/' + encodeURIComponent(S.user) + '/' + uploadId;
+  let uploaded = startChunk * CHUNK_SIZE;
 
-  // Cria a pasta de upload temporária
-  await fetch(chunkDir, {
-    method: 'MKCOL',
-    headers: { 'Authorization': auth() }
-  });
-
-  let uploaded = 0;
-  for (let i = 0; i < totalChunks; i++) {
+  for (let i = startChunk; i < totalChunks; i++) {
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
     const chunkName = String(i).padStart(5, '0');
 
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.upload.onprogress = (e) => {
-        const totalSent = uploaded + e.loaded;
-        onProgress(totalSent, file.size, i + 1, totalChunks);
-      };
-      xhr.onload = () => xhr.status < 400 ? resolve() : reject(new Error('Chunk ' + i + ' failed: ' + xhr.status));
-      xhr.onerror = reject;
-      xhr.open('PUT', chunkDir + '/' + chunkName);
-      xhr.setRequestHeader('Authorization', auth());
-      xhr.send(chunk);
-    });
+    let chunkOk = false;
+    for (let attempt = 0; attempt < 3 && !chunkOk; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+      try {
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.onprogress = e => {
+            onProgress(uploaded + e.loaded, file.size, i + 1, totalChunks);
+          };
+          xhr.onload = () => xhr.status < 400 ? resolve() : reject(new Error('HTTP ' + xhr.status));
+          xhr.onerror = reject;
+          xhr.ontimeout = reject;
+          xhr.timeout = 60000; // 60s por chunk
+          xhr.open('PUT', chunkDir + '/' + chunkName);
+          xhr.setRequestHeader('Authorization', auth());
+          xhr.send(chunk);
+        });
+        chunkOk = true;
+      } catch(e) {
+        if (attempt === 2) throw new Error(`Chunk ${i} falhou após 3 tentativas`);
+      }
+    }
 
     uploaded += (end - start);
     onProgress(uploaded, file.size, i + 1, totalChunks);
+
+    // Guarda progresso após cada chunk — permite retomar
+    await _resumeDB.save(fileKey, uploadId, i, totalChunks, destPath);
   }
 
   // Move o ficheiro para o destino final
@@ -1719,6 +1809,169 @@ async function uploadChunked(file, destPath, onProgress) {
     }
   });
   if (!moveResp.ok) throw new Error('Finalização falhou: ' + moveResp.status);
+
+  // Limpa o registo de upload concluído
+  await _resumeDB.del(fileKey);
+}
+
+
+// ─── COMPRESSÃO DE IMAGENS ───────────────────────────────────────────────────
+const IMG_MAX_PX = 2560;   // max dimension (2K)
+const IMG_QUALITY = 0.88;  // qualidade JPEG/WebP
+
+async function compressImage(file) {
+  // Só comprime imagens acima de 1MB e não GIF/SVG/WebP já comprimido
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['jpg','jpeg','png','heic','heif','bmp','tiff'].includes(ext)) return file;
+  if (file.size < 1024 * 1024) return file; // < 1MB — não vale a pena
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const { width: w, height: h } = bitmap;
+
+    // Só redimensiona se for maior que o limite
+    let nw = w, nh = h;
+    if (w > IMG_MAX_PX || h > IMG_MAX_PX) {
+      const ratio = Math.min(IMG_MAX_PX / w, IMG_MAX_PX / h);
+      nw = Math.round(w * ratio);
+      nh = Math.round(h * ratio);
+    }
+
+    const canvas = new OffscreenCanvas(nw, nh);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, nw, nh);
+    bitmap.close();
+
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: IMG_QUALITY });
+
+    // Só usa versão comprimida se for menor
+    if (blob.size >= file.size) return file;
+
+    const compressed = new File([blob],
+      file.name.replace(/\.[^.]+$/, '.jpg'),
+      { type: 'image/jpeg', lastModified: file.lastModified }
+    );
+
+    const saving = Math.round((1 - blob.size / file.size) * 100);
+    return compressed;
+  } catch(e) {
+    return file; // fallback — envia original se compressão falhar
+  }
+}
+
+
+// ─── WEB SHARE API ───────────────────────────────────────────────────────────
+async function webShareFile(p, nm) {
+  if (!navigator.share) {
+    // Fallback — copia link para clipboard
+    const url = dav(p) + '?auth=' + btoa(auth().replace('Basic ',''));
+    try { await navigator.clipboard.writeText(url); toast('Link copiado!', 'ok'); }
+    catch(e) { toast('Web Share não suportado neste browser', 'err'); }
+    return;
+  }
+  try {
+    toast('⏳ A preparar ficheiro...', '');
+    const r = await fetch(dav(p), { headers: { 'Authorization': auth() } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const file = new File([blob], nm, { type: blob.type });
+    await navigator.share({ files: [file], title: nm });
+    toast('✅ Partilhado!', 'ok');
+  } catch(e) {
+    if (e.name !== 'AbortError') toast('Erro ao partilhar: ' + e.message, 'err');
+  }
+}
+
+
+// ─── HOJE NA HISTÓRIA ────────────────────────────────────────────────────────
+async function loadTodayInHistory() {
+  const el = document.getElementById('today-widget');
+  if (!el) return;
+
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yearAgo = now.getFullYear() - 1;
+
+  try {
+    // Pesquisa ficheiros com data de hoje em anos anteriores
+    const body = `<?xml version="1.0"?>
+<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:basicsearch>
+    <d:select><d:prop><d:displayname/><d:getlastmodified/><d:resourcetype/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:select>
+    <d:from><d:scope><d:href>${PROXY}/nextcloud/remote.php/dav/files/${encodeURIComponent(S.user)}/</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+    <d:where>
+      <d:and>
+        <d:not><d:is-collection/></d:not>
+        <d:or>
+          <d:like><d:prop><d:displayname/></d:prop><d:literal>%.jpg%</d:literal></d:like>
+          <d:like><d:prop><d:displayname/></d:prop><d:literal>%.jpeg%</d:literal></d:like>
+          <d:like><d:prop><d:displayname/></d:prop><d:literal>%.png%</d:literal></d:like>
+        </d:or>
+      </d:and>
+    </d:where>
+    <d:limit><d:nresults>200</d:nresults></d:limit>
+  </d:basicsearch>
+</d:searchrequest>`;
+
+    const r = await fetch(PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + '/', {
+      method: 'SEARCH',
+      headers: { 'Authorization': auth(), 'Content-Type': 'application/xml', 'Depth': 'infinity' },
+      body
+    });
+
+    if (!r.ok) throw new Error('search failed');
+    const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    const photos = [];
+    xml.querySelectorAll('response').forEach(resp => {
+      const mod = resp.querySelector('getlastmodified')?.textContent || '';
+      if (!mod) return;
+      const d = new Date(mod);
+      const dMM = String(d.getMonth()+1).padStart(2,'0');
+      const dDD = String(d.getDate()).padStart(2,'0');
+      const dYY = d.getFullYear();
+      if (dMM === mm && dDD === dd && dYY < now.getFullYear()) {
+        const rel = normPath(decodeURIComponent(resp.querySelector('href').textContent));
+        const nm = resp.querySelector('displayname')?.textContent || '';
+        const fid = resp.querySelector('fileid')?.textContent || '';
+        if (nm && !nm.startsWith('.')) {
+          photos.push({ path: rel, name: nm, fileid: fid, year: dYY });
+        }
+      }
+    });
+
+    if (!photos.length) {
+      el.style.display = 'none';
+      return;
+    }
+
+    // Escolhe uma foto aleatória
+    const pick = photos[Math.floor(Math.random() * photos.length)];
+    const yearsAgo = now.getFullYear() - pick.year;
+    const thumbSrc = pick.fileid ? thumbUrl(pick.fileid, 400) : dav(pick.path);
+
+    el.style.display = 'block';
+    el.innerHTML = `
+      <div class="today-card" onclick="window.openGallery('${esc(pick.path)}')">
+        <div class="today-img-wrap">
+          <img class="today-img" data-src="${thumbSrc}" alt="${hesc(pick.name)}"
+            onerror="this.style.display='none'">
+          <div class="today-badge">📅 Hoje, há ${yearsAgo} ano${yearsAgo>1?'s':''}</div>
+        </div>
+        <div class="today-info">
+          <div class="today-title">📸 Hoje na História</div>
+          <div class="today-sub">${hesc(pick.name)}</div>
+          <div class="today-meta">${pick.year} · ${photos.length} foto${photos.length>1?'s':''} neste dia</div>
+        </div>
+      </div>`;
+
+    // Lazy load da imagem
+    const img = el.querySelector('img[data-src]');
+    if (img) _lazyObserver.observe(img);
+
+  } catch(e) {
+    el.style.display = 'none';
+  }
 }
 
 const UPQ = {
@@ -1797,11 +2050,23 @@ const UPQ = {
       const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/').replace(/'/g,'%27');
       let queueId=null;
       try { queueId=await UQ.add(f,destPath); } catch(e) {}
+      // Comprime imagens antes de enviar (>1MB)
+      let fileToUpload = f;
+      if (isImg(f.name) && f.size > 1024*1024) {
+        document.getElementById('uprog-file').textContent = `🗜️ A comprimir ${f.name}...`;
+        fileToUpload = await compressImage(f);
+        if (fileToUpload !== f) {
+          const saved = Math.round((1 - fileToUpload.size/f.size)*100);
+          document.getElementById('uprog-speed').textContent = `📦 -${saved}% (${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)})`;
+        }
+      }
+      const f2 = fileToUpload; // usa ficheiro comprimido daqui para a frente
+
       let uploaded=false;
       // Ficheiros > 100MB usam chunked upload para suportar falhas e retoma
-      if (f.size > 100 * 1024 * 1024 && !S.uploadCancel) {
+      if (f2.size > 100 * 1024 * 1024 && !S.uploadCancel) {
         try {
-          await uploadChunked(f, destPath, (sent, total, chunk, totalChunks) => {
+          await uploadChunked(f2, destPath, (sent, total, chunk, totalChunks) => {
             const pct = Math.min(99, Math.round(sent / total * 100));
             document.getElementById('uprog-bar').style.width = pct + '%';
             document.getElementById('uprog-file').textContent = `⬆️ ${f.name} — chunk ${chunk}/${totalChunks} (${pct}%)`;
@@ -1831,15 +2096,15 @@ const UPQ = {
           xhr.onerror=()=>resolve(false);
           xhr.onabort=()=>resolve(null);
           const LARGE=50*1024*1024;
-          const uploadUrl=f.size>LARGE?NC+'/remote.php/dav/files/'+encodeURIComponent(S.user)+destPath:dav(destPath);
+          const uploadUrl=f2.size>LARGE?NC+'/remote.php/dav/files/'+encodeURIComponent(S.user)+destPath:dav(destPath);
           xhr.open('PUT',uploadUrl);
           xhr.setRequestHeader('Authorization',auth());
-          xhr.send(f);
+          xhr.send(f2);
         });
         if (ok===null) break;
         if (ok) { uploaded=true; } else if (attempt===2) { job.errors++; }
       }
-      if (uploaded) { sentBytes+=f.size; if(queueId){try{await UQ.setStatus(queueId,'done');}catch(e){}} }
+      if (uploaded) { sentBytes+=f2.size; if(queueId){try{await UQ.setStatus(queueId,'done');}catch(e){}} }
       job.done++;
       this._render();
     }
@@ -4083,7 +4348,16 @@ document.addEventListener('visibilitychange', () => {
 
 // ─── EXPOSE TO GLOBAL SCOPE ───────────────────────────────────────────────
 // Usa Object.assign para garantir que o Vite/Terser não optimiza as referências
+
+function webShareCurrentFile() {
+  if (!S.galleryItems || S.galleryIdx === undefined) return;
+  const item = S.galleryItems[S.galleryIdx];
+  if (item) webShareFile(item.path, item.name);
+}
+
 Object.assign(globalThis, {
+  compressImage, webShareFile, webShareCurrentFile, loadTodayInHistory,
+  _resumeDB, _fileKey,
   skeletonGrid, skeletonList,
   _idb, _idxAdd, _idxSearch,
   _refreshInBackground,

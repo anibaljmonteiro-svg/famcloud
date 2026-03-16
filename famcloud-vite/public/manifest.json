@@ -1,24 +1,88 @@
 {
   "name": "FamCloud",
   "short_name": "FamCloud",
-  "description": "A tua cloud familiar privada e segura",
+  "description": "Armazenamento familiar privado e seguro na tua cloud pessoal",
   "start_url": "/famcloud/",
   "scope": "/famcloud/",
   "display": "standalone",
   "background_color": "#faf7f2",
   "theme_color": "#c4956a",
   "orientation": "any",
-  "categories": ["productivity", "utilities"],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "share_target": {
     "action": "/famcloud/",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
-      "files": [{ "name": "files", "accept": ["image/*", "video/*", "application/pdf", ".doc", ".docx", ".xls", ".xlsx"] }]
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "image/*",
+            "video/*",
+            "application/pdf",
+            ".doc",
+            ".docx",
+            ".xls",
+            ".xlsx"
+          ]
+        }
+      ]
     }
   },
   "icons": [
-    { "src": "/famcloud/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/famcloud/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/famcloud/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/famcloud/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Carregar ficheiro",
+      "short_name": "Upload",
+      "description": "Carregar ficheiros para a FamCloud",
+      "url": "/famcloud/?action=upload",
+      "icons": [
+        {
+          "src": "/famcloud/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Câmara",
+      "short_name": "Câmara",
+      "description": "Tirar foto e carregar",
+      "url": "/famcloud/?action=camera",
+      "icons": [
+        {
+          "src": "/famcloud/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Pesquisar",
+      "short_name": "Pesquisa",
+      "description": "Pesquisar ficheiros",
+      "url": "/famcloud/?action=search",
+      "icons": [
+        {
+          "src": "/famcloud/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }
