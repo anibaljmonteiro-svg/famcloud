@@ -870,12 +870,23 @@ function updateTreeActive() {
 
 // ─── FILE LISTING ─────────────────────────────────────────────────────────────
 async function loadFiles(p) {
-  // Mostra skeleton imediatamente enquanto carrega
   const fl = document.getElementById('fl');
+
+  // STALE-WHILE-REVALIDATE: mostra cache instantaneamente
+  const cached = await _idb.get(p);
+  if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
+    S.lastItems = cached.items;
+    renderFiles(cached.items);
+    _idxAdd(cached.items, p);
+    // Continua em background para actualizar
+    _refreshInBackground(p);
+    return;
+  }
+
+  // Sem cache — mostra skeleton
   if (fl && !fl.querySelector('.fgrid, .flist')) {
     fl.innerHTML = S.view === 'grid' ? skeletonGrid() : skeletonList();
   } else if (fl) {
-    // Tem conteúdo — mostra skeleton por cima com fade suave
     fl.style.opacity = '0.5';
   }
   S.path = p; clearSel(); updateBC(); updateTreeActive();
@@ -945,6 +956,42 @@ async function loadFiles(p) {
     if (e.name === 'AbortError') return; // Navegação cancelada — normal
     document.getElementById('fl').innerHTML = `<div class="empty"><div class="ei">⚠️</div><h3>Erro ao carregar</h3><p>${e.message}</p></div>`;
   }
+}
+
+// Actualiza cache em background sem bloquear UI
+async function _refreshInBackground(p) {
+  try {
+    const r = await fetch(dav(p), {
+      method: 'PROPFIND',
+      headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`
+    });
+    if (!r.ok) return;
+    const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    let folders = [], files = [];
+    xml.querySelectorAll('response').forEach(resp => {
+      const rel = normPath(decodeURIComponent(resp.querySelector('href').textContent));
+      if (normPath(rel) === normPath(p)) return;
+      const isDir = resp.querySelector('resourcetype collection') !== null;
+      const nm = resp.querySelector('displayname')?.textContent || rel.split('/').filter(Boolean).pop() || '';
+      if (!nm || nm.startsWith('.') || HIDDEN.includes(nm)) return;
+      const size = parseInt(resp.querySelector('getcontentlength')?.textContent || '0') || 0;
+      const mod = resp.querySelector('getlastmodified')?.textContent || '';
+      const date = mod ? new Date(mod) : new Date(0);
+      const fpath = isDir ? (rel.endsWith('/') ? rel : rel+'/') : rel;
+      const fileid = resp.querySelector('fileid')?.textContent || '';
+      const obj = { name:nm, path:fpath, isDir, size, date, dateStr:fmtDate(date), fileid };
+      if (isDir) folders.push(obj); else files.push(obj);
+    });
+    const fresh = [...sortItems(folders), ...sortItems(files)];
+    // Só re-renderiza se estiver na mesma pasta
+    if (S.path === p) {
+      S.lastItems = fresh;
+      renderFiles(fresh);
+    }
+    _idb.set(p, fresh);
+    _idxAdd(fresh, p);
+  } catch(e) {}
 }
 
 function sortItems(arr) {
@@ -1421,6 +1468,109 @@ async function uploadFolderFiles(fl) {
 
 // ─── UPLOAD QUEUE MANAGER ────────────────────────────────────────────────────
 
+
+// ─── INDEXEDDB CACHE ─────────────────────────────────────────────────────────
+// Guarda conteúdo de pastas para navegação instantânea
+// Padrão: stale-while-revalidate (mostra cache, actualiza em background)
+const _idb = (() => {
+  let db = null;
+  const open = () => new Promise((res, rej) => {
+    if (db) return res(db);
+    const r = indexedDB.open('fc-cache-v1', 1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('dirs'))
+        d.createObjectStore('dirs', { keyPath: 'path' });
+    };
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror = () => rej(r.error);
+  });
+  return {
+    async get(path) {
+      try {
+        const d = await open();
+        return new Promise((res) => {
+          const tx = d.transaction('dirs', 'readonly');
+          const req = tx.objectStore('dirs').get(path);
+          req.onsuccess = () => res(req.result || null);
+          req.onerror = () => res(null);
+        });
+      } catch(e) { return null; }
+    },
+    async set(path, items) {
+      try {
+        const d = await open();
+        const tx = d.transaction('dirs', 'readwrite');
+        tx.objectStore('dirs').put({ path, items, ts: Date.now() });
+      } catch(e) {}
+    },
+    async del(path) {
+      try {
+        const d = await open();
+        const tx = d.transaction('dirs', 'readwrite');
+        tx.objectStore('dirs').delete(path);
+      } catch(e) {}
+    },
+    async clear() {
+      try {
+        const d = await open();
+        const tx = d.transaction('dirs', 'readwrite');
+        tx.objectStore('dirs').clear();
+      } catch(e) {}
+    }
+  };
+})();
+
+// TTL do cache — 5 minutos
+const CACHE_TTL = 5 * 60 * 1000;
+
+
+// ─── SEARCH INDEX LOCAL ──────────────────────────────────────────────────────
+// Índice em memória de todos os ficheiros visitados
+// Cresce organicamente à medida que o utilizador navega
+const _searchIdx = new Map(); // path → {name, path, isDir, parent}
+
+function _idxAdd(items, parentPath) {
+  items.forEach(it => {
+    _searchIdx.set(it.path, {
+      name: it.name,
+      path: it.path,
+      isDir: it.isDir,
+      parent: parentPath,
+      size: it.size,
+      dateStr: it.dateStr
+    });
+  });
+}
+
+function _idxSearch(q) {
+  const ql = q.toLowerCase();
+  const results = [];
+  for (const [, item] of _searchIdx) {
+    if (item.name.toLowerCase().includes(ql)) {
+      results.push(item);
+    }
+  }
+  // Ordena: pastas primeiro, depois por nome
+  results.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name, 'pt');
+  });
+  return results.slice(0, 60);
+}
+
+// Ctrl+K para abrir pesquisa
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    window.openSearch();
+  }
+  if (e.key === 'Escape') {
+    window.closeSearch();
+    window.closeCtx();
+  }
+});
+
 // ─── SKELETON SCREENS ────────────────────────────────────────────────────────
 function skeletonGrid(n=12) {
   return '<div class="fgrid">' + Array.from({length:n}, () => `
@@ -1838,20 +1988,32 @@ async function dlF(p, nm, isDir=false) {
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 async function delIt(p, nm) {
-  if (!confirm(`Apagar "${nm}" permanentemente?\n\nEsta acção é irreversível.`)) return;
+  if (!confirm(`Apagar "${nm}"?\n\nEsta acção é irreversível.`)) return;
   if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+
+  // OPTIMISTIC UPDATE — remove da UI imediatamente
+  const prevItems = [...S.lastItems];
+  S.lastItems = S.lastItems.filter(it => it.path !== p);
+  renderFiles(S.lastItems);
+  _idb.set(S.path, S.lastItems); // actualiza cache
+  toast('"' + nm + '" apagado.', 'ok');
+
   try {
     const r = await fetch(dav(p), { method:'DELETE', headers:{'Authorization':auth()} });
-    if (r.ok || r.status===204) { toast('"' + nm + '" apagado.', 'ok'); loadFilesDebounced(S.path); loadStorage(); }
-    else if (r.status === 404) {
-      // Tenta com path re-encoded
-      const ep = p.split('/').map(s => encodeURIComponent(s)).join('/');
-      const r2 = await fetch(dav(ep), { method:'DELETE', headers:{'Authorization':auth()} });
-      if (r2.ok || r2.status===204) { toast('"' + nm + '" apagado.', 'ok'); loadFilesDebounced(S.path); loadStorage(); }
-      else toast('Ficheiro não encontrado no servidor.', 'err');
+    if (r.ok || r.status===204 || r.status===404) {
+      loadStorage();
+    } else {
+      // ROLLBACK
+      S.lastItems = prevItems;
+      renderFiles(S.lastItems);
+      _idb.set(S.path, prevItems);
+      toast('Erro ao apagar (' + r.status + ')', 'err');
     }
-    else toast('Erro ao apagar (' + r.status + ')', 'err');
-  } catch(e) { toast('Erro ao apagar', 'err'); }
+  } catch(e) {
+    S.lastItems = prevItems;
+    renderFiles(S.lastItems);
+    toast('Erro ao apagar', 'err');
+  }
 }
 
 // ─── RENAME ───────────────────────────────────────────────────────────────────
@@ -1862,13 +2024,37 @@ function startRn(p, nm) {
 async function doRename() {
   const n = document.getElementById('ri').value.trim();
   if (!n || !S.renameTarget) return;
-  const par = S.renameTarget.p.replace(/\/$/,'').substring(0, S.renameTarget.p.replace(/\/$/,'').lastIndexOf('/')+1);
+  const oldPath = S.renameTarget.p;
+  const oldNm = S.renameTarget.nm;
+  const par = oldPath.replace(/\/$/,'').substring(0, oldPath.replace(/\/$/,'').lastIndexOf('/')+1);
   const dest = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + par + encodeURIComponent(n);
+  const newPath = par + (oldPath.endsWith('/') ? n + '/' : n);
+
+  // OPTIMISTIC UPDATE — muda o nome na UI antes do servidor responder
+  const prevItems = [...S.lastItems];
+  S.lastItems = S.lastItems.map(it =>
+    it.path === oldPath ? {...it, name: n, path: newPath} : it
+  );
+  renderFiles(S.lastItems);
+  hideM('rename');
+
   try {
-    const r = await fetch(dav(S.renameTarget.p), { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'F'} });
-    if (r.ok || r.status===201 || r.status===204) { toast('Renomeado!', 'ok'); hideM('rename'); loadFiles(S.path); }
-    else toast('Erro ao renomear (' + r.status + ')', 'err');
-  } catch(e) { toast('Erro ao renomear', 'err'); }
+    const r = await fetch(dav(oldPath), { method:'MOVE', headers:{'Authorization':auth(),'Destination':dest,'Overwrite':'F'} });
+    if (r.ok || r.status===201 || r.status===204) {
+      toast('✅ Renomeado!', 'ok');
+      _idb.del(S.path); // Invalida cache desta pasta
+      loadFilesDebounced(S.path); // Sincroniza com servidor
+    } else {
+      // ROLLBACK — reverte se falhou
+      S.lastItems = prevItems;
+      renderFiles(S.lastItems);
+      toast('Erro ao renomear (' + r.status + ')', 'err');
+    }
+  } catch(e) {
+    S.lastItems = prevItems;
+    renderFiles(S.lastItems);
+    toast('Erro ao renomear', 'err');
+  }
 }
 
 // ─── CREATE FOLDER ────────────────────────────────────────────────────────────
@@ -2461,9 +2647,24 @@ function closeSearch() {
 
 function schedSearch(q) {
   clearTimeout(S.searchTimer);
-  if (!q || q.length < 2) { document.getElementById('search-results').innerHTML='<div class="sr-hint">Escreve pelo menos 2 caracteres</div>'; return; }
-  document.getElementById('search-results').innerHTML = '<div class="sr-loading" style="padding:32px;text-align:center"><div class="spin" style="margin:auto"></div></div>';
-  S.searchTimer = setTimeout(() => execSearch(q), 350);
+  if (!q || q.length < 2) {
+    document.getElementById('search-results').innerHTML='<div class="sr-hint">Escreve pelo menos 2 caracteres · Ctrl+K para abrir</div>';
+    return;
+  }
+  // Mostra resultados locais IMEDIATAMENTE (< 1ms)
+  const localResults = _idxSearch(q);
+  if (localResults.length > 0) {
+    renderSearchResults(localResults, q, true);
+    // Adiciona indicador de que está a pesquisar no servidor
+    const el = document.getElementById('search-results');
+    const hint = document.createElement('div');
+    hint.style.cssText = 'padding:8px 16px;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;border-top:1px solid var(--border)';
+    hint.innerHTML = '<div class="spin" style="width:10px;height:10px;border-width:1.5px"></div> A pesquisar no servidor...';
+    el.appendChild(hint);
+  } else {
+    document.getElementById('search-results').innerHTML = '<div class="sr-loading" style="padding:32px;text-align:center"><div class="spin" style="margin:auto"></div></div>';
+  }
+  S.searchTimer = setTimeout(() => execSearch(q), 400);
 }
 
 async function execSearch(q) {
@@ -3884,6 +4085,8 @@ document.addEventListener('visibilitychange', () => {
 // Usa Object.assign para garantir que o Vite/Terser não optimiza as referências
 Object.assign(globalThis, {
   skeletonGrid, skeletonList,
+  _idb, _idxAdd, _idxSearch,
+  _refreshInBackground,
   showCtxMenu, closeCtx,
   prefetchDir, cancelPrefetch, getPrefetched,
   uploadChunked,

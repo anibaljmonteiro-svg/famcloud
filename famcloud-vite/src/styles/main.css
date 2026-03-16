@@ -535,6 +535,26 @@ body {
 .sr-item:hover { background:var(--bg2); }
 .sr-path { font-size:11px; color:var(--text2); margin-top:2px; }
 .sr-empty, .sr-hint { padding:32px; text-align:center; color:var(--text2); font-size:14px; }
+.sr-local-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--bg2); border-radius:6px; padding:2px 8px;
+  font-size:10px; font-weight:600; color:var(--text3);
+  margin-left:8px; vertical-align:middle;
+}
+/* Keyboard shortcut badge */
+.kbd {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:5px; padding:1px 6px; font-size:11px;
+  font-family:monospace; color:var(--text2); font-weight:600;
+}
+/* Cache indicator no topbar */
+.cache-badge {
+  font-size:9px; padding:1px 5px; background:var(--green);
+  color:#fff; border-radius:4px; font-weight:700; margin-left:4px;
+  opacity:0; transition:opacity .3s;
+}
+.cache-badge.show { opacity:1; }
 
 /* ── GALLERY ── */
 .gallery-ov { position:fixed; inset:0; background:#000; z-index:600; display:none; flex-direction:column; }
