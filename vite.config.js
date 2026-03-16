@@ -6,8 +6,12 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
-    // Deixar o Vite gerir os nomes automaticamente
-    // garante que o CSS é injectado correctamente no HTML
+    // Manter nomes das funções para que window.X = fn funcione correctamente
+    minify: 'terser',
+    terserOptions: {
+      compress: { drop_console: true },
+      mangle: false, // NÃO renomear variáveis — essencial para window.* exports
+    },
   },
 
   server: {
