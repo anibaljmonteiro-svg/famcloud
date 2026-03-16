@@ -1974,6 +1974,60 @@ async function loadTodayInHistory() {
   }
 }
 
+
+// ─── UPLOAD OPTIMISTA ────────────────────────────────────────────────────────
+function addOptimisticCard(file, path) {
+  const nm = file.name;
+  const fakeItem = {
+    name: nm, path: path, isDir: false,
+    size: file.size, dateStr: 'A carregar...', fileid: ''
+  };
+  // Insere no início dos ficheiros (após as pastas)
+  const firstFile = S.lastItems.findIndex(it => !it.isDir);
+  if (firstFile >= 0) S.lastItems.splice(firstFile, 0, fakeItem);
+  else S.lastItems.push(fakeItem);
+
+  // Renderiza e marca o card como uploading
+  renderFiles(S.lastItems);
+
+  // Encontra o card e adiciona estado visual
+  const grid = document.querySelector('.fgrid');
+  if (!grid) return null;
+  const cards = grid.querySelectorAll('.fc');
+  for (const card of cards) {
+    const onclick = card.getAttribute('onclick') || '';
+    if (onclick.includes(esc(path))) {
+      card.classList.add('fc-uploading');
+      // Anel de progresso SVG
+      const ring = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      ring.setAttribute('class','fc-upload-ring');
+      ring.setAttribute('viewBox','0 0 22 22');
+      const C = 2 * Math.PI * 9; // circumference
+      ring.innerHTML = `
+        <circle class="bg" cx="11" cy="11" r="9"/>
+        <circle class="prog" cx="11" cy="11" r="9"
+          stroke-dasharray="${C}" stroke-dashoffset="${C}"/>`;
+      card.appendChild(ring);
+      return { card, ring, path };
+    }
+  }
+  return null;
+}
+
+function updateOptimisticCard(handle, pct) {
+  if (!handle) return;
+  const prog = handle.ring?.querySelector('.prog');
+  if (prog) {
+    const C = 2 * Math.PI * 9;
+    prog.setAttribute('stroke-dashoffset', C - (C * pct / 100));
+  }
+}
+
+function removeOptimisticCard(path) {
+  // Remove item fake da lista
+  S.lastItems = S.lastItems.filter(it => !(it.path === path && it.dateStr === 'A carregar...'));
+}
+
 const UPQ = {
   jobs: [],   // {id, name, total, files, destPath, status:'wait'|'run'|'ok'|'err', done:0, errors:0}
   _running: false,
@@ -2051,6 +2105,10 @@ const UPQ = {
       let queueId=null;
       try { queueId=await UQ.add(f,destPath); } catch(e) {}
       // Comprime imagens antes de enviar (>1MB)
+      // Upload optimista — mostra card na grid imediatamente
+      const optPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/');
+      const optHandle = (S.view === 'grid' && S.path === jobDestDir) ? addOptimisticCard(f, optPath) : null;
+
       let fileToUpload = f;
       if (isImg(f.name) && f.size > 1024*1024) {
         document.getElementById('uprog-file').textContent = `🗜️ A comprimir ${f.name}...`;
@@ -2088,6 +2146,8 @@ const UPQ = {
             document.getElementById('uprog-bar').style.width=pct+'%';
             const elapsed=(Date.now()-startTime)/1000||0.001;
             document.getElementById('uprog-speed').textContent=fmtSz(totalSent/elapsed)+'/s';
+            // Actualiza anel de progresso no card optimista
+            updateOptimisticCard(optHandle, Math.round(e.loaded/e.total*100));
           };
           xhr.onload=()=>{
             if(xhr.status===507){toast('❌ Servidor sem espaço.','err');S.uploadCancel=true;}
@@ -2104,7 +2164,13 @@ const UPQ = {
         if (ok===null) break;
         if (ok) { uploaded=true; } else if (attempt===2) { job.errors++; }
       }
-      if (uploaded) { sentBytes+=f2.size; if(queueId){try{await UQ.setStatus(queueId,'done');}catch(e){}} }
+      if (uploaded) {
+        sentBytes+=f2.size;
+        if(queueId){try{await UQ.setStatus(queueId,'done');}catch(e){}}
+        removeOptimisticCard(optPath);
+      } else {
+        removeOptimisticCard(optPath);
+      }
       job.done++;
       this._render();
     }
@@ -4356,6 +4422,7 @@ function webShareCurrentFile() {
 }
 
 Object.assign(globalThis, {
+  addOptimisticCard, updateOptimisticCard, removeOptimisticCard,
   compressImage, webShareFile, webShareCurrentFile, loadTodayInHistory,
   _resumeDB, _fileKey,
   skeletonGrid, skeletonList,

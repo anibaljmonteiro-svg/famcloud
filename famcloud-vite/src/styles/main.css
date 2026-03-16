@@ -1058,3 +1058,34 @@ body {
 .today-title { font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:.6px; margin-bottom:3px; }
 .today-sub { font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px; }
 .today-meta { font-size:11px; color:var(--text3); }
+
+/* ═══════════════════════════════════════
+   UPLOAD OPTIMISTA
+═══════════════════════════════════════ */
+.fc-uploading {
+  opacity: .55; position: relative; pointer-events: none;
+}
+.fc-uploading::after {
+  content: '';
+  position: absolute; inset: 0; border-radius: var(--radius);
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(255,255,255,.25) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: uploading-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes uploading-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.fc-upload-ring {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px;
+}
+.fc-upload-ring circle {
+  fill: none; stroke: var(--primary); stroke-width: 2.5;
+  stroke-linecap: round;
+  transform-origin: center;
+  transform: rotate(-90deg);
+  transition: stroke-dashoffset .2s;
+}
+.fc-upload-ring .bg { stroke: var(--bg3); }
