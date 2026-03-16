@@ -356,6 +356,28 @@ function fmtDate(d) {
          ' ' + d.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'});
 }
 
+function folderIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('foto') || n.includes('photo') || n.includes('imagem') || n.includes('image')) return '🖼️';
+  if (n.includes('video') || n.includes('vídeo') || n.includes('filme') || n.includes('movie')) return '🎬';
+  if (n.includes('familia') || n.includes('família') || n.includes('family')) return '👨‍👩‍👧‍👦';
+  if (n.includes('desporto') || n.includes('sport') || n.includes('futebol') || n.includes('treino')) return '⚽';
+  if (n.includes('ferias') || n.includes('férias') || n.includes('vacation') || n.includes('viagem')) return '🏖️';
+  if (n.includes('document') || n.includes('doc') || n.includes('arquivo') || n.includes('paper')) return '📄';
+  if (n.includes('music') || n.includes('música') || n.includes('audio')) return '🎵';
+  if (n.includes('download') || n.includes('transfere')) return '⬇️';
+  if (n.includes('backup')) return '💾';
+  if (n.includes('trabalho') || n.includes('work') || n.includes('job')) return '💼';
+  if (n.includes('pessoal') || n.includes('personal') || n.includes('private')) return '🔒';
+  if (n.includes('nota') || n.includes('note')) return '📝';
+  if (n.includes('comida') || n.includes('receita') || n.includes('food')) return '🍽️';
+  if (n.includes('casa') || n.includes('home') || n.includes('apartamento')) return '🏠';
+  if (n.includes('escola') || n.includes('school') || n.includes('estudo')) return '📚';
+  if (n.includes('saude') || n.includes('saúde') || n.includes('health') || n.includes('medic')) return '🏥';
+  if (n.includes('osm') || n.includes('ids') || n.includes('hdc')) return '📁';
+  return '📁';
+}
+
 function fIcon(n) {
   const e = ex(n);
   if (IE.includes(e)) return '🖼️';
@@ -797,7 +819,7 @@ async function loadTree(p, parentEl) {
       item.className = 'ti' + (S.path===d.path?' active':'');
       item.dataset.path = d.path;
       const isFav = S.favorites.some(f => f.path===d.path);
-      item.innerHTML = `<span class="ti-ic">📁</span><span class="ti-nm">${hesc(d.nm)}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
+      item.innerHTML = `<span class="ti-ic">${folderIcon(d.nm)}</span><span class="ti-nm">${hesc(d.nm)}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
       item.querySelector('.ti-star').addEventListener('click', e => { e.stopPropagation(); toggleFav(d.path, d.nm, e); });
       item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('drag-over'); });
       item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
@@ -3714,6 +3736,7 @@ window.setAvatar = setAvatar;
 window.uploadAvatar = uploadAvatar;
 window.openProfile = openProfile;
 window.generateVideoThumb = generateVideoThumb;
+window.folderIcon = folderIcon;
 window.saveProfile = saveProfile;
 window.setEmojiAvatar = setEmojiAvatar;
 window.openPassM = openPassM;
