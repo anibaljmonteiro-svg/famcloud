@@ -1031,11 +1031,11 @@ body {
       <div class="dz" id="dz" onclick="document.getElementById('ufi').click()">
         <p>🖱️ Clica para carregar &nbsp;·&nbsp; <strong>Arrasta ficheiros ou pastas aqui</strong> &nbsp;·&nbsp; Longo toque para selecionar</p>
       </div>
-      <input type="file" id="ufi" multiple onchange="uploadFiles(this.files)">
-      <input type="file" id="folder-ufi" multiple webkitdirectory onchange="uploadFolderFiles(this.files)">
-      <input type="file" id="cam-input" accept="image/*,video/*" capture="environment" onchange="uploadFiles(this.files)">
-      <input type="file" id="gallery-input" multiple accept="image/*,video/*" onchange="uploadFiles(this.files)">
-      <input type="file" id="doc-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp3,.aac" onchange="uploadFiles(this.files)">
+      <input type="file" id="ufi" multiple onchange="window.uploadFiles(this.files)">
+      <input type="file" id="folder-ufi" multiple webkitdirectory onchange="window.uploadFolderFiles(this.files)">
+      <input type="file" id="cam-input" accept="image/*,video/*" capture="environment" onchange="window.uploadFiles(this.files)">
+      <input type="file" id="gallery-input" multiple accept="image/*,video/*" onchange="window.uploadFiles(this.files)">
+      <input type="file" id="doc-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp3,.aac" onchange="window.uploadFiles(this.files)">
       <div id="fl"></div>
     </div>
 
@@ -1193,6 +1193,7 @@ body {
 <div class="slideshow-ov" id="slideshow-ov">
   <div class="slideshow-counter" id="ss-counter">1 / 1</div>
   <img class="slideshow-img" id="ss-img" src="" alt="">
+  <video class="slideshow-img" id="ss-vid" style="display:none" playsinline></video>
   <div class="slideshow-prog" id="ss-prog" style="width:0%"></div>
   <div class="slideshow-info" id="ss-info" style="display:none">
     <div class="slideshow-title" id="ss-title"></div>
@@ -1231,7 +1232,7 @@ body {
       <div class="prof-av" id="prof-av" onclick="document.getElementById('av-input').click()">
         <span id="prof-av-l"></span><div class="prof-av-badge">📷</div>
       </div>
-      <input type="file" id="av-input" accept="image/*" onchange="uploadAvatar(this.files[0])">
+      <input type="file" id="av-input" accept="image/*" onchange="window.uploadAvatar(this.files[0])">
       <div class="prof-nm" id="prof-nm"></div>
       <div style="font-size:12px;color:var(--text2)" id="av-status"></div>
     </div>
@@ -1420,6 +1421,6 @@ body {
 <!-- ═══════════════════════════════════════
      JAVASCRIPT — COMPLETE
 ═══════════════════════════════════════ -->
-<script type="module" src="/src/main.js"></script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>
