@@ -544,11 +544,15 @@ async function uploadAvatar(file) {
 }
 
 function openProfile() {
-  document.getElementById('prof-nm').textContent = S.user;
-  document.getElementById('prof-av-l').textContent = S.user.charAt(0).toUpperCase();
-  document.getElementById('av-status').textContent = '';
-  const img = document.getElementById('uav').querySelector('img');
-  if (img) document.getElementById('prof-av').innerHTML = `<img src="${img.src}"><div class="prof-av-badge">📷</div>`;
+  const nmEl = document.getElementById('prof-nm');
+  const avlEl = document.getElementById('prof-av-l');
+  const stEl = document.getElementById('av-status');
+  const profAv = document.getElementById('prof-av');
+  if (nmEl) nmEl.textContent = S.user;
+  if (avlEl) avlEl.textContent = S.user.charAt(0).toUpperCase();
+  if (stEl) stEl.textContent = '';
+  const img = document.getElementById('uav')?.querySelector('img');
+  if (img && profAv) profAv.innerHTML = `<img src="${img.src}" alt=""><div class="prof-av-badge">📷</div>`;
   showM('profile');
 }
 
@@ -1193,9 +1197,12 @@ async function handleDrop(destPath) {
 }
 
 // Drop zone (external file upload — suporta ficheiros E pastas com subpastas)
-const dzEl = document.getElementById('dz');
-dzEl.addEventListener('dragover', e => { if (!S.dragItem) { e.preventDefault(); dzEl.classList.add('over'); } });
-dzEl.addEventListener('dragleave', () => dzEl.classList.remove('over'));
+let dzEl;
+document.addEventListener('DOMContentLoaded', () => {
+  dzEl = document.getElementById('dz');
+  if (!dzEl) return;
+  dzEl.addEventListener('dragover', e => { if (!S.dragItem) { e.preventDefault(); dzEl.classList.add('over'); } });
+  dzEl.addEventListener('dragleave', () => dzEl.classList.remove('over'));
 dzEl.addEventListener('drop', async e => {
   e.preventDefault(); dzEl.classList.remove('over');
   if (S.dragItem) { S.dragItem = null; return; }
@@ -1243,6 +1250,7 @@ dzEl.addEventListener('drop', async e => {
   }
   S.dragItem = null;
 });
+}); // DOMContentLoaded for dzEl
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 function navTo(p) { S.hist.push(S.path); loadFiles(p); }
@@ -1827,9 +1835,12 @@ function galleryZoomToggle() {
   img.style.transform = `scale(${S.galleryZoom})`;
   img.classList.toggle('zoomed', S.galleryZoom > 1);
 }
-document.getElementById('gallery-img').addEventListener('dblclick', galleryZoomToggle);
-document.getElementById('gallery-img').addEventListener('click', e => {
-  if (S.galleryZoom > 1) galleryZoomToggle();
+document.addEventListener('DOMContentLoaded', () => {
+  const galleryImg = document.getElementById('gallery-img');
+  if (galleryImg) {
+    galleryImg.addEventListener('dblclick', galleryZoomToggle);
+    galleryImg.addEventListener('click', e => { if (S.galleryZoom > 1) galleryZoomToggle(); });
+  }
 });
 
 function closeGallery() {
@@ -1980,9 +1991,10 @@ function closeSlideshow() {
 }
 
 // Touch swipe no slideshow
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
   let t0=0, tx=0;
   const el = document.getElementById('slideshow-ov');
+  if (!el) return;
   el.addEventListener('touchstart', e => { t0=Date.now(); tx=e.touches[0].clientX; }, {passive:true});
   el.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - tx;
@@ -1992,7 +2004,7 @@ function closeSlideshow() {
       if (!SS.paused) { clearInterval(SS.interval); ssPlay(); }
     }
   }, {passive:true});
-})();
+});
 
 // Touch swipe + pinch zoom
 let _gTx = null, _gPd = null;
@@ -2494,8 +2506,9 @@ document.addEventListener('keydown', e => {
 });
 
 // Click outside search closes it
-document.getElementById('search-ov').addEventListener('click', e => {
-  if (e.target === document.getElementById('search-ov')) closeSearch();
+document.addEventListener('DOMContentLoaded', () => {
+  const searchOv = document.getElementById('search-ov');
+  if (searchOv) searchOv.addEventListener('click', e => { if (e.target === searchOv) closeSearch(); });
 });
 
 
