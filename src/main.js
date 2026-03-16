@@ -459,6 +459,20 @@ function initApp() {
   document.getElementById('uname-top').textContent = S.user;
   document.getElementById('drop-nm').textContent = S.user;
   document.getElementById('uav-l').textContent = S.user.charAt(0).toUpperCase();
+  // Restaura emoji avatar se existir
+  const savedEmoji = localStorage.getItem('fc_emoji_av_' + S.user);
+  if (savedEmoji) {
+    const uav = document.getElementById('uav');
+    if (uav) uav.innerHTML = `<span style="font-size:18px">${savedEmoji}</span>`;
+  }
+  // Restaura display name
+  const savedDN = localStorage.getItem('fc_display_name_' + S.user);
+  if (savedDN) {
+    const unTop = document.getElementById('uname-top');
+    const dropNm = document.getElementById('drop-nm');
+    if (unTop) unTop.textContent = savedDN;
+    if (dropNm) dropNm.textContent = savedDN;
+  }
   if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
     document.getElementById('cam-btn').style.display = 'flex';
   }
@@ -543,17 +557,93 @@ async function uploadAvatar(file) {
   document.getElementById('av-input').value = '';
 }
 
+// Avatares pré-definidos (emojis como o Discord)
+const AV_PRESETS = ['🦁','🐯','🦊','🐺','🦝','🐻','🐼','🐨','🦄','🐸','🦋','🦅','🌟','🔥','⚡','🌈','🎭','🎸','🚀','🌊'];
+
 function openProfile() {
   const nmEl = document.getElementById('prof-nm');
   const avlEl = document.getElementById('prof-av-l');
   const stEl = document.getElementById('av-status');
   const profAv = document.getElementById('prof-av');
+  const dispNm = document.getElementById('prof-display-nm');
+  const okEl = document.getElementById('prof-ok');
+  const errEl = document.getElementById('prof-err');
   if (nmEl) nmEl.textContent = S.user;
   if (avlEl) avlEl.textContent = S.user.charAt(0).toUpperCase();
   if (stEl) stEl.textContent = '';
+  if (okEl) okEl.style.display = 'none';
+  if (errEl) errEl.style.display = 'none';
+  // Preenche nome actual
+  const savedName = localStorage.getItem('fc_display_name_' + S.user) || S.user;
+  if (dispNm) dispNm.value = savedName;
+  // Avatar actual
   const img = document.getElementById('uav')?.querySelector('img');
   if (img && profAv) profAv.innerHTML = `<img src="${img.src}" alt=""><div class="prof-av-badge">📷</div>`;
+  // Avatares pré-definidos
+  const presetsEl = document.getElementById('av-presets');
+  if (presetsEl) {
+    presetsEl.innerHTML = AV_PRESETS.map(em => `
+      <div onclick="window.setEmojiAvatar('${em}')" style="width:44px;height:44px;border-radius:50%;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;border:2px solid transparent;transition:all .15s;"
+        onmouseover="this.style.borderColor='var(--primary)';this.style.transform='scale(1.1)'"
+        onmouseout="this.style.borderColor='transparent';this.style.transform=''">
+        ${em}
+      </div>`).join('');
+  }
   showM('profile');
+}
+
+function setEmojiAvatar(emoji) {
+  // Guarda emoji como avatar
+  localStorage.setItem('fc_emoji_av_' + S.user, emoji);
+  // Actualiza UI
+  const uav = document.getElementById('uav');
+  const profAv = document.getElementById('prof-av');
+  const avl = document.getElementById('uav-l');
+  if (uav) uav.innerHTML = `<span style="font-size:18px">${emoji}</span>`;
+  if (profAv) profAv.innerHTML = `<span style="font-size:44px">${emoji}</span><div class="prof-av-badge">📷</div>`;
+  if (avl) avl.textContent = '';
+  document.getElementById('av-status').textContent = '✅ Avatar actualizado!';
+  toast('Avatar actualizado!', 'ok');
+}
+
+async function saveProfile() {
+  const dispNm = document.getElementById('prof-display-nm');
+  const okEl = document.getElementById('prof-ok');
+  const errEl = document.getElementById('prof-err');
+  if (okEl) okEl.style.display = 'none';
+  if (errEl) errEl.style.display = 'none';
+  const newName = dispNm?.value.trim();
+  if (!newName) return;
+  // Guarda localmente (Nextcloud OCS para display name)
+  localStorage.setItem('fc_display_name_' + S.user, newName);
+  // Tenta actualizar no Nextcloud
+  try {
+    const params = new URLSearchParams();
+    params.append('key', 'displayname');
+    params.append('value', newName);
+    const r = await fetch(PROXY + '/nextcloud/ocs/v2.php/cloud/users/' + encodeURIComponent(S.user), {
+      method: 'PUT',
+      headers: { 'Authorization': auth(), 'OCS-APIRequest': 'true', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+    const txt = await r.text();
+    if (txt.includes('200') || txt.includes('100')) {
+      if (okEl) okEl.style.display = 'block';
+      // Actualiza nome na topbar
+      const unTop = document.getElementById('uname-top');
+      const dropNm = document.getElementById('drop-nm');
+      if (unTop) unTop.textContent = newName;
+      if (dropNm) dropNm.textContent = newName;
+      toast('Nome actualizado!', 'ok');
+    } else {
+      // Guardou localmente mesmo que o servidor não aceite
+      if (okEl) okEl.style.display = 'block';
+      toast('Nome guardado localmente!', 'ok');
+    }
+  } catch(e) {
+    if (okEl) okEl.style.display = 'block';
+    toast('Nome guardado localmente!', 'ok');
+  }
 }
 
 // ─── PASSWORD ─────────────────────────────────────────────────────────────────
@@ -920,7 +1010,9 @@ function card(it) {
     const fbUrl = fileid ? dav(p) : null;
     inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
   } else if (isVid(nm)) {
-    inner = `<div class="fic ic-v">🎬</div>`;
+    // Tenta mostrar thumbnail do vídeo via canvas
+    const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
+    inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
   } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
@@ -1849,7 +1941,37 @@ function closeGallery() {
 }
 
 // ─── SLIDESHOW ────────────────────────────────────────────────────────────────
-const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false, isVideo:false };
+const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false, isVideo:false, fetchAbort:null };
+
+// ─── VIDEO THUMBNAIL ─────────────────────────────────────────────────────────
+const _vidThumbCache = new Map();
+async function generateVideoThumb(el, path) {
+  if (_vidThumbCache.has(path)) {
+    const thumb = _vidThumbCache.get(path);
+    if (el) el.outerHTML = `<img class="thumb" src="${thumb}" alt="">`;
+    return;
+  }
+  try {
+    const r = await fetch(dav(path), { headers: { 'Authorization': auth() } });
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const video = document.createElement('video');
+    video.src = blobUrl; video.muted = true; video.preload = 'metadata';
+    await new Promise((res, rej) => {
+      video.onloadedmetadata = () => { video.currentTime = Math.min(1, video.duration * 0.1); };
+      video.onseeked = res; video.onerror = rej; setTimeout(rej, 8000);
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 300; canvas.height = 170;
+    canvas.getContext('2d').drawImage(video, 0, 0, 300, 170);
+    const thumbData = canvas.toDataURL('image/jpeg', 0.7);
+    _vidThumbCache.set(path, thumbData);
+    URL.revokeObjectURL(blobUrl);
+    const current = el?.id ? document.getElementById(el.id) : null;
+    if (current) current.outerHTML = `<img class="thumb" src="${thumbData}" alt="">`;
+  } catch(e) { /* mantém ícone */ }
+}
 
 function startSlideshowFromFolder() {
   SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
@@ -1896,28 +2018,64 @@ function ssShow() {
     vid.style.opacity = '0';
     vid.pause();
     vid.src = '';
-    // Carregar vídeo directamente do Nextcloud com auth
+    // Sem interval para vídeos — avança quando termina
+    if (SS.interval) { clearInterval(SS.interval); SS.interval = null; }
+    // Mostrar indicador de loading
+    let ssLoader = document.getElementById('ss-loader');
+    if (!ssLoader) {
+      ssLoader = document.createElement('div');
+      ssLoader.id = 'ss-loader';
+      ssLoader.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:12px;color:rgba(255,255,255,.8);font-size:13px;pointer-events:none;';
+      ssLoader.innerHTML = '<div class="spin" style="width:36px;height:36px;border-width:3px;border-color:rgba(255,255,255,.3);border-top-color:#fff"></div><div id="ss-loader-txt">⬇️ A carregar vídeo...</div>';
+      document.getElementById('slideshow-ov').appendChild(ssLoader);
+    }
+    ssLoader.style.display = 'flex';
+    const loaderTxt = document.getElementById('ss-loader-txt');
+    // Carregar vídeo com auth via proxy
+    // Cancela download anterior se existir
+    if (SS.fetchAbort) { SS.fetchAbort.abort(); }
+    SS.fetchAbort = new AbortController();
     fetch(dav(it.path), {
-      headers: { 'Authorization': auth() }
-    }).then(r => r.blob()).then(blob => {
+      headers: { 'Authorization': auth() },
+      signal: SS.fetchAbort.signal
+    }).then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const total = parseInt(r.headers.get('content-length') || '0');
+      // Streaming progress
+      const reader = r.body.getReader();
+      const chunks = [];
+      let received = 0;
+      const pump = () => reader.read().then(({ done, value }) => {
+        if (done) return chunks;
+        chunks.push(value);
+        received += value.length;
+        if (total && loaderTxt) {
+          const pct = Math.round(received / total * 100);
+          loaderTxt.textContent = `⬇️ ${pct}% — ${fmtSz(received)}`;
+        }
+        return pump();
+      });
+      return pump().then(() => new Blob(chunks));
+    }).then(blob => {
       const blobUrl = URL.createObjectURL(blob);
       vid.src = blobUrl;
       vid.style.opacity = '1';
+      if (ssLoader) ssLoader.style.display = 'none';
       vid.play().catch(() => {});
-      // Quando o vídeo termina, avança automaticamente
       vid.onended = () => {
         URL.revokeObjectURL(blobUrl);
         if (!SS.paused) ssNext();
       };
-      // Barra de progresso baseada na duração do vídeo
       vid.onloadedmetadata = () => {
         const dur = vid.duration * 1000 || SS.speed;
         prog.style.transition = `width ${dur}ms linear`;
         prog.style.width = '100%';
       };
-    }).catch(() => ssNext());
-    // Sem interval para vídeos — avança quando termina
-    if (SS.interval) { clearInterval(SS.interval); SS.interval = null; }
+    }).catch(e => {
+      if (ssLoader) ssLoader.style.display = 'none';
+      if (loaderTxt) loaderTxt.textContent = '❌ Erro: ' + e.message;
+      setTimeout(() => ssNext(), 2000);
+    });
   } else {
     // Mostrar imagem, esconder vídeo
     vid.style.display = 'none';
@@ -1983,8 +2141,13 @@ function ssInfo() {
 
 function closeSlideshow() {
   clearInterval(SS.interval); SS.interval = null;
+  // Cancela download de vídeo em curso
+  if (SS.fetchAbort) { SS.fetchAbort.abort(); SS.fetchAbort = null; }
   const vid = document.getElementById('ss-vid');
-  if (vid) { vid.pause(); if (vid.src) { URL.revokeObjectURL(vid.src); vid.src = ''; } }
+  if (vid) { vid.pause(); if (vid.src && vid.src.startsWith('blob:')) { URL.revokeObjectURL(vid.src); } vid.src = ''; }
+  // Esconde loader
+  const loader = document.getElementById('ss-loader');
+  if (loader) loader.style.display = 'none';
   document.getElementById('slideshow-ov').classList.remove('show');
   if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
   else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
@@ -3644,6 +3807,9 @@ window.loadAvatar = loadAvatar;
 window.setAvatar = setAvatar;
 window.uploadAvatar = uploadAvatar;
 window.openProfile = openProfile;
+window.generateVideoThumb = generateVideoThumb;
+window.saveProfile = saveProfile;
+window.setEmojiAvatar = setEmojiAvatar;
 window.openPassM = openPassM;
 window.changePass = changePass;
 window.loadStorage = loadStorage;
