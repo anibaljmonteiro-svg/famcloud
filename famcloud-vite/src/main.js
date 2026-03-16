@@ -5,7 +5,6 @@ import './styles/main.css'
 // Deploy: GitHub Pages → Cloudflare Worker → Nextcloud Hetzner
 
 
-'use strict';
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 const THEMES = {
@@ -357,6 +356,28 @@ function fmtDate(d) {
          ' ' + d.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'});
 }
 
+function folderIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('foto') || n.includes('photo') || n.includes('imagem') || n.includes('image')) return '🖼️';
+  if (n.includes('video') || n.includes('vídeo') || n.includes('filme') || n.includes('movie')) return '🎬';
+  if (n.includes('familia') || n.includes('família') || n.includes('family')) return '👨‍👩‍👧‍👦';
+  if (n.includes('desporto') || n.includes('sport') || n.includes('futebol') || n.includes('treino')) return '⚽';
+  if (n.includes('ferias') || n.includes('férias') || n.includes('vacation') || n.includes('viagem')) return '🏖️';
+  if (n.includes('document') || n.includes('doc') || n.includes('arquivo') || n.includes('paper')) return '📄';
+  if (n.includes('music') || n.includes('música') || n.includes('audio')) return '🎵';
+  if (n.includes('download') || n.includes('transfere')) return '⬇️';
+  if (n.includes('backup')) return '💾';
+  if (n.includes('trabalho') || n.includes('work') || n.includes('job')) return '💼';
+  if (n.includes('pessoal') || n.includes('personal') || n.includes('private')) return '🔒';
+  if (n.includes('nota') || n.includes('note')) return '📝';
+  if (n.includes('comida') || n.includes('receita') || n.includes('food')) return '🍽️';
+  if (n.includes('casa') || n.includes('home') || n.includes('apartamento')) return '🏠';
+  if (n.includes('escola') || n.includes('school') || n.includes('estudo')) return '📚';
+  if (n.includes('saude') || n.includes('saúde') || n.includes('health') || n.includes('medic')) return '🏥';
+  if (n.includes('osm') || n.includes('ids') || n.includes('hdc')) return '📁';
+  return '📁';
+}
+
 function fIcon(n) {
   const e = ex(n);
   if (IE.includes(e)) return '🖼️';
@@ -460,6 +481,20 @@ function initApp() {
   document.getElementById('uname-top').textContent = S.user;
   document.getElementById('drop-nm').textContent = S.user;
   document.getElementById('uav-l').textContent = S.user.charAt(0).toUpperCase();
+  // Restaura emoji avatar se existir
+  const savedEmoji = localStorage.getItem('fc_emoji_av_' + S.user);
+  if (savedEmoji) {
+    const uav = document.getElementById('uav');
+    if (uav) uav.innerHTML = `<span style="font-size:18px">${savedEmoji}</span>`;
+  }
+  // Restaura display name
+  const savedDN = localStorage.getItem('fc_display_name_' + S.user);
+  if (savedDN) {
+    const unTop = document.getElementById('uname-top');
+    const dropNm = document.getElementById('drop-nm');
+    if (unTop) unTop.textContent = savedDN;
+    if (dropNm) dropNm.textContent = savedDN;
+  }
   if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
     document.getElementById('cam-btn').style.display = 'flex';
   }
@@ -544,13 +579,93 @@ async function uploadAvatar(file) {
   document.getElementById('av-input').value = '';
 }
 
+// Avatares pré-definidos (emojis como o Discord)
+const AV_PRESETS = ['🦁','🐯','🦊','🐺','🦝','🐻','🐼','🐨','🦄','🐸','🦋','🦅','🌟','🔥','⚡','🌈','🎭','🎸','🚀','🌊'];
+
 function openProfile() {
-  document.getElementById('prof-nm').textContent = S.user;
-  document.getElementById('prof-av-l').textContent = S.user.charAt(0).toUpperCase();
-  document.getElementById('av-status').textContent = '';
-  const img = document.getElementById('uav').querySelector('img');
-  if (img) document.getElementById('prof-av').innerHTML = `<img src="${img.src}"><div class="prof-av-badge">📷</div>`;
+  const nmEl = document.getElementById('prof-nm');
+  const avlEl = document.getElementById('prof-av-l');
+  const stEl = document.getElementById('av-status');
+  const profAv = document.getElementById('prof-av');
+  const dispNm = document.getElementById('prof-display-nm');
+  const okEl = document.getElementById('prof-ok');
+  const errEl = document.getElementById('prof-err');
+  if (nmEl) nmEl.textContent = S.user;
+  if (avlEl) avlEl.textContent = S.user.charAt(0).toUpperCase();
+  if (stEl) stEl.textContent = '';
+  if (okEl) okEl.style.display = 'none';
+  if (errEl) errEl.style.display = 'none';
+  // Preenche nome actual
+  const savedName = localStorage.getItem('fc_display_name_' + S.user) || S.user;
+  if (dispNm) dispNm.value = savedName;
+  // Avatar actual
+  const img = document.getElementById('uav')?.querySelector('img');
+  if (img && profAv) profAv.innerHTML = `<img src="${img.src}" alt=""><div class="prof-av-badge">📷</div>`;
+  // Avatares pré-definidos
+  const presetsEl = document.getElementById('av-presets');
+  if (presetsEl) {
+    presetsEl.innerHTML = AV_PRESETS.map(em => `
+      <div onclick="window.setEmojiAvatar('${em}')" style="width:44px;height:44px;border-radius:50%;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;border:2px solid transparent;transition:all .15s;"
+        onmouseover="this.style.borderColor='var(--primary)';this.style.transform='scale(1.1)'"
+        onmouseout="this.style.borderColor='transparent';this.style.transform=''">
+        ${em}
+      </div>`).join('');
+  }
   showM('profile');
+}
+
+function setEmojiAvatar(emoji) {
+  // Guarda emoji como avatar
+  localStorage.setItem('fc_emoji_av_' + S.user, emoji);
+  // Actualiza UI
+  const uav = document.getElementById('uav');
+  const profAv = document.getElementById('prof-av');
+  const avl = document.getElementById('uav-l');
+  if (uav) uav.innerHTML = `<span style="font-size:18px">${emoji}</span>`;
+  if (profAv) profAv.innerHTML = `<span style="font-size:44px">${emoji}</span><div class="prof-av-badge">📷</div>`;
+  if (avl) avl.textContent = '';
+  document.getElementById('av-status').textContent = '✅ Avatar actualizado!';
+  toast('Avatar actualizado!', 'ok');
+}
+
+async function saveProfile() {
+  const dispNm = document.getElementById('prof-display-nm');
+  const okEl = document.getElementById('prof-ok');
+  const errEl = document.getElementById('prof-err');
+  if (okEl) okEl.style.display = 'none';
+  if (errEl) errEl.style.display = 'none';
+  const newName = dispNm?.value.trim();
+  if (!newName) return;
+  // Guarda localmente (Nextcloud OCS para display name)
+  localStorage.setItem('fc_display_name_' + S.user, newName);
+  // Tenta actualizar no Nextcloud
+  try {
+    const params = new URLSearchParams();
+    params.append('key', 'displayname');
+    params.append('value', newName);
+    const r = await fetch(PROXY + '/nextcloud/ocs/v2.php/cloud/users/' + encodeURIComponent(S.user), {
+      method: 'PUT',
+      headers: { 'Authorization': auth(), 'OCS-APIRequest': 'true', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+    const txt = await r.text();
+    if (txt.includes('200') || txt.includes('100')) {
+      if (okEl) okEl.style.display = 'block';
+      // Actualiza nome na topbar
+      const unTop = document.getElementById('uname-top');
+      const dropNm = document.getElementById('drop-nm');
+      if (unTop) unTop.textContent = newName;
+      if (dropNm) dropNm.textContent = newName;
+      toast('Nome actualizado!', 'ok');
+    } else {
+      // Guardou localmente mesmo que o servidor não aceite
+      if (okEl) okEl.style.display = 'block';
+      toast('Nome guardado localmente!', 'ok');
+    }
+  } catch(e) {
+    if (okEl) okEl.style.display = 'block';
+    toast('Nome guardado localmente!', 'ok');
+  }
 }
 
 // ─── PASSWORD ─────────────────────────────────────────────────────────────────
@@ -666,7 +781,7 @@ function renderFavs() {
     return;
   }
   el.innerHTML = S.favorites.map(f => `
-    <div class="ti${S.path===f.path?' active':''}" data-path="${f.path}" onclick="navTo('${esc(f.path)}')">
+    <div class="ti${S.path===f.path?' active':''}" data-path="${f.path}" onclick="window.navTo('${esc(f.path)}')">
       <span class="ti-ic">⭐</span>
       <span class="ti-nm">${f.name}</span>
       <span class="ti-star on" onclick="toggleFav('${esc(f.path)}','${esc(f.name)}',event)" title="Remover">✕</span>
@@ -704,7 +819,7 @@ async function loadTree(p, parentEl) {
       item.className = 'ti' + (S.path===d.path?' active':'');
       item.dataset.path = d.path;
       const isFav = S.favorites.some(f => f.path===d.path);
-      item.innerHTML = `<span class="ti-ic">📁</span><span class="ti-nm">${hesc(d.nm)}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
+      item.innerHTML = `<span class="ti-ic">${folderIcon(d.nm)}</span><span class="ti-nm">${hesc(d.nm)}</span><span class="ti-star${isFav?' on':''}" title="${isFav?'Remover':'Favorito'}">★</span><span class="ti-ar">›</span>`;
       item.querySelector('.ti-star').addEventListener('click', e => { e.stopPropagation(); toggleFav(d.path, d.nm, e); });
       item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('drag-over'); });
       item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
@@ -899,7 +1014,7 @@ function renderFiles(items) {
     });
   });
   // Mostra botão slideshow se há imagens
-  const hasImgs = items.some(it => !it.isDir && isImg(it.name));
+  const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
   if (ssBtn) ssBtn.style.display = hasImgs ? '' : 'none';
 }
@@ -917,31 +1032,33 @@ function card(it) {
     const fbUrl = fileid ? dav(p) : null;
     inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="${nm}" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
   } else if (isVid(nm)) {
-    inner = `<div class="fic ic-v">🎬</div>`;
+    // Tenta mostrar thumbnail do vídeo via canvas
+    const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
+    inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
   } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
-  const clickFn = isDir ? `openDir('${sp}')` :
-    isImg(nm) ? `openGallery('${sp}')` :
-    isPdf(nm) ? `openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `openMedia('${sp}','${sn}')` :
-    `dlF('${sp}','${sn}')`;
+  const clickFn = isDir ? `window.openDir('${sp}')` :
+    isImg(nm) ? `window.openGallery('${sp}')` :
+    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
+    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
+    `window.dlF('${sp}','${sn}')`;
   return `<div class="fc${isDir?' folder':''}${sel?' selected':''}"
-    onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();enterSel('${sp}')"
-    ontouchstart="tStart(event,'${sp}')" ontouchend="tEnd()"
+    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
+    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
+    ontouchstart="window.tStart(event,'${sp}')" ontouchend="window.tEnd()"
     draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
-    <div class="fc-chk" onclick="event.stopPropagation();enterOrToggleSel('${sp}')">✓</div>
+    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())window.dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
+    <div class="fc-chk" onclick="event.stopPropagation();window.enterOrToggleSel('${sp}')">✓</div>
     <div class="fac">
-      ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();dlF('${sp}','${sn}',${isDir})" title="${isDir?'Download ZIP':'Download'}">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="event.stopPropagation();shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
-      <button class="fab fa-rn" onclick="event.stopPropagation();startRn('${sp}','${sn}')" title="Renomear">✏️</button>
-      <button class="fab fa-mv" onclick="event.stopPropagation();startMoveItem('${sp}','${sn}')" title="Mover">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="event.stopPropagation();openVersions('${sp}','${sn}','${fileid}')" title="Versões">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="event.stopPropagation();openTags('${sp}','${sn}','${fileid}')" title="Tags">🏷️</button>
-      <button class="fab fa-del" onclick="event.stopPropagation();delIt('${sp}','${sn}')" title="Apagar">🗑️</button>
+      ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();window.dlF('${sp}','${sn}',${isDir})" title="${isDir?'Download ZIP':'Download'}">⬇️</button>`:''}
+      <button class="fab fa-sh" onclick="event.stopPropagation();window.shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
+      <button class="fab fa-rn" onclick="event.stopPropagation();window.startRn('${sp}','${sn}')" title="Renomear">✏️</button>
+      <button class="fab fa-mv" onclick="event.stopPropagation();window.startMoveItem('${sp}','${sn}')" title="Mover">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="event.stopPropagation();window.openVersions('${sp}','${sn}','${fileid}')" title="Versões">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="event.stopPropagation();window.openTags('${sp}','${sn}','${fileid}')" title="Tags">🏷️</button>
+      <button class="fab fa-del" onclick="event.stopPropagation();window.delIt('${sp}','${sn}')" title="Apagar">🗑️</button>
     </div>
     ${inner}
     <div class="fn">${nm}</div>
@@ -954,28 +1071,28 @@ function row(it) {
   const sp = esc(p), sn = esc(nm);
   const sz = (!isDir && size) ? fmtSz(size) : '-';
   const sel = S.selected.has(p);
-  const clickFn = isDir ? `openDir('${sp}')` :
-    isImg(nm) ? `openGallery('${sp}')` :
-    isPdf(nm) ? `openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `openMedia('${sp}','${sn}')` :
-    `dlF('${sp}','${sn}')`;
+  const clickFn = isDir ? `window.openDir('${sp}')` :
+    isImg(nm) ? `window.openGallery('${sp}')` :
+    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
+    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
+    `window.dlF('${sp}','${sn}')`;
   return `<div class="lr${sel?' selected':''}" data-path="${p}"
-    onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();enterSel('${sp}')"
+    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
+    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
     draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
+    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())window.dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
     <div class="lr-n"><div class="lr-chk">${sel?'✓':''}</div>${isDir?'📁':fIcon(nm)}<span>${nm}</span></div>
     <div class="lr-s">${sz}</div>
     <div class="lr-d">${dateStr||'-'}</div>
     <div class="lr-a" onclick="event.stopPropagation()">
-      ${!isDir?`<button class="fab fa-dl" onclick="dlF('${sp}','${sn}')">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="shareItem('${sp}','${sn}')">🔗</button>
-      <button class="fab fa-rn" onclick="startRn('${sp}','${sn}')">✏️</button>
-      <button class="fab fa-mv" onclick="startMoveItem('${sp}','${sn}')">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="openVersions('${sp}','${sn}','${fileid}')">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="openTags('${sp}','${sn}','${fileid}')">🏷️</button>
-      <button class="fab fa-del" onclick="delIt('${sp}','${sn}')">🗑️</button>
+      ${!isDir?`<button class="fab fa-dl" onclick="window.dlF('${sp}','${sn}')">⬇️</button>`:''}
+      <button class="fab fa-sh" onclick="window.shareItem('${sp}','${sn}')">🔗</button>
+      <button class="fab fa-rn" onclick="window.startRn('${sp}','${sn}')">✏️</button>
+      <button class="fab fa-mv" onclick="window.startMoveItem('${sp}','${sn}')">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="window.openVersions('${sp}','${sn}','${fileid}')">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="window.openTags('${sp}','${sn}','${fileid}')">🏷️</button>
+      <button class="fab fa-del" onclick="window.delIt('${sp}','${sn}')">🗑️</button>
     </div>
   </div>`;
 }
@@ -1046,7 +1163,7 @@ function updateSelBar() {
 
 // Long press for mobile
 function tStart(e, path) {
-  S.touchTimer = setTimeout(() => { enterSel(path); }, 600);
+  S.touchTimer = setTimeout(() => { enterSel(path); }, 800);
 }
 function tEnd() {
   clearTimeout(S.touchTimer);
@@ -1194,9 +1311,12 @@ async function handleDrop(destPath) {
 }
 
 // Drop zone (external file upload — suporta ficheiros E pastas com subpastas)
-const dzEl = document.getElementById('dz');
-dzEl.addEventListener('dragover', e => { if (!S.dragItem) { e.preventDefault(); dzEl.classList.add('over'); } });
-dzEl.addEventListener('dragleave', () => dzEl.classList.remove('over'));
+let dzEl;
+document.addEventListener('DOMContentLoaded', () => {
+  dzEl = document.getElementById('dz');
+  if (!dzEl) return;
+  dzEl.addEventListener('dragover', e => { if (!S.dragItem) { e.preventDefault(); dzEl.classList.add('over'); } });
+  dzEl.addEventListener('dragleave', () => dzEl.classList.remove('over'));
 dzEl.addEventListener('drop', async e => {
   e.preventDefault(); dzEl.classList.remove('over');
   if (S.dragItem) { S.dragItem = null; return; }
@@ -1244,6 +1364,7 @@ dzEl.addEventListener('drop', async e => {
   }
   S.dragItem = null;
 });
+}); // DOMContentLoaded for dzEl
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 function navTo(p) { S.hist.push(S.path); loadFiles(p); }
@@ -1417,100 +1538,6 @@ async function uploadFiles(fl) {
   UPQ.add(fl, label);
 }
 
-async function uploadFiles_LEGACY(fl) {
-  if (!fl || !fl.length) return;
-  S.uploadCancel = false;
-  const prog = document.getElementById('uprog'); prog.style.display = 'block';
-  document.getElementById('uprog-title').textContent = `⬆️ A carregar ${fl.length} ficheiro${fl.length>1?'s':''}...`;
-  const files = Array.from(fl);
-  let totalBytes = files.reduce((s,f) => s+f.size, 0), sentBytes = 0, errors = 0, done = 0;
-  const startTime = Date.now();
-
-  for (let i = 0; i < files.length; i++) {
-    if (S.uploadCancel) break;
-    const f = files[i];
-    document.getElementById('uprog-file').textContent = `${i+1}/${files.length}: ${f.name}`;
-    // Build dest path (handle webkitRelativePath for folder uploads)
-    let destDir = S.path;
-    if (f.webkitRelativePath) {
-      const parts = f.webkitRelativePath.split('/');
-      let cur = S.path;
-      for (let j = 0; j < parts.length - 1; j++) {
-        cur += (cur.endsWith('/') ? '' : '/') + encodeURIComponent(parts[j]);
-        await fetch(dav(cur), { method:'MKCOL', headers:{'Authorization':auth()} }).catch(()=>{});
-        cur += '/';
-      }
-      destDir = cur;
-    }
-    const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/').replace(/'/g,'%27');
-    // Regista na fila persistente antes de enviar
-    let queueId = null;
-    try { queueId = await UQ.add(f, destPath); } catch(e) {}
-    const fileStart = Date.now();
-    // Retry até 3 vezes com backoff exponencial
-    let uploaded = false;
-    for (let attempt = 0; attempt < 3 && !S.uploadCancel && !uploaded; attempt++) {
-      if (attempt > 0) {
-        document.getElementById('uprog-file').textContent = `↻ Retry ${attempt}/2: ${f.name}`;
-        await new Promise(r => setTimeout(r, 1000 * attempt));
-      }
-      const ok = await new Promise(resolve => {
-        const xhr = new XMLHttpRequest(); S.uploadXHR = xhr;
-        xhr.upload.onprogress = e => {
-          const totalSent = sentBytes + e.loaded;
-          const pct = Math.min(99, Math.round(totalSent / totalBytes * 100));
-          document.getElementById('uprog-bar').style.width = pct + '%';
-          const elapsed = (Date.now() - startTime) / 1000 || 0.001;
-          document.getElementById('uprog-speed').textContent = fmtSz(totalSent / elapsed) + '/s';
-        };
-        xhr.onload = () => {
-          if (xhr.status === 507) {
-            toast('❌ Servidor sem espaço (507). Liberta espaço e tenta novamente.', 'err');
-            S.uploadCancel = true;
-          }
-          resolve(xhr.status < 400);
-        };
-        xhr.onerror = () => resolve(false);
-        xhr.onabort = () => resolve(null);
-        // Ficheiros > 50MB: upload directo ao Nextcloud (bypass Cloudflare 30s timeout)
-        const LARGE = 50 * 1024 * 1024;
-        const uploadUrl = f.size > LARGE
-          ? NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + destPath
-          : dav(destPath);
-        if (f.size > LARGE && attempt === 0) {
-          document.getElementById('uprog-file').textContent = `📡 Directo: ${i+1}/${files.length}: ${f.name}`;
-        }
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Authorization', auth());
-        xhr.send(f);
-      });
-      if (ok === null) break; // cancelado
-      if (ok) { uploaded = true; } else if (attempt === 2) { errors++; }
-    }
-    if (uploaded) {
-      sentBytes += f.size;
-      if (queueId) { try { await UQ.setStatus(queueId, 'done'); } catch(e) {} }
-    }
-    done++;
-  }
-  document.getElementById('uprog-bar').style.width = '100%';
-  setTimeout(() => { prog.style.display='none'; document.getElementById('uprog-bar').style.width='0%'; }, 900);
-  S.uploadXHR = null;
-  if (!S.uploadCancel) {
-    const ok = done - errors;
-    if (errors && ok === 0) toast(`❌ ${errors} ficheiro${errors>1?'s':''} falharam. Tenta novamente.`, 'err');
-    else if (errors) toast(`⚠️ ${ok} carregado${ok>1?'s':''}, ${errors} falharam.`, 'err');
-    else toast(`✅ ${ok} ficheiro${ok>1?'s':''} carregado${ok>1?'s':''}!`, 'ok');
-    loadFilesDebounced(S.path); loadStorage(); setTimeout(() => loadTree('/'), 600);
-  } else {
-    toast('Upload cancelado.', '');
-  }
-  ['ufi','folder-ufi','cam-input','gallery-input','doc-input'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value='';
-  });
-  // Limpa entradas concluídas da fila
-  try { await UQ.clearDone(); } catch(e) {}
-}
 
 // ─── DOWNLOAD ─────────────────────────────────────────────────────────────────
 async function dlF(p, nm, isDir=false) {
@@ -1805,7 +1832,7 @@ function renderGallery() {
   // strip thumbnails
   const strip = document.getElementById('gallery-strip');
   strip.innerHTML = S.galleryItems.map((g,i) =>
-    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="galleryGoTo(${i})">`
+    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="window.galleryGoTo(${i})">`
   ).join('');
   strip.querySelectorAll('img[data-src]').forEach(img => {
     const src = img.dataset.src; delete img.dataset.src; authImg(img, src);
@@ -1828,9 +1855,12 @@ function galleryZoomToggle() {
   img.style.transform = `scale(${S.galleryZoom})`;
   img.classList.toggle('zoomed', S.galleryZoom > 1);
 }
-document.getElementById('gallery-img').addEventListener('dblclick', galleryZoomToggle);
-document.getElementById('gallery-img').addEventListener('click', e => {
-  if (S.galleryZoom > 1) galleryZoomToggle();
+document.addEventListener('DOMContentLoaded', () => {
+  const galleryImg = document.getElementById('gallery-img');
+  if (galleryImg) {
+    galleryImg.addEventListener('dblclick', galleryZoomToggle);
+    galleryImg.addEventListener('click', e => { if (S.galleryZoom > 1) galleryZoomToggle(); });
+  }
 });
 
 function closeGallery() {
@@ -1839,11 +1869,41 @@ function closeGallery() {
 }
 
 // ─── SLIDESHOW ────────────────────────────────────────────────────────────────
-const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false };
+const SS = { items:[], idx:0, interval:null, speed:5000, paused:false, showInfo:false, isVideo:false, fetchAbort:null };
+
+// ─── VIDEO THUMBNAIL ─────────────────────────────────────────────────────────
+const _vidThumbCache = new Map();
+async function generateVideoThumb(el, path) {
+  if (_vidThumbCache.has(path)) {
+    const thumb = _vidThumbCache.get(path);
+    if (el) el.outerHTML = `<img class="thumb" src="${thumb}" alt="">`;
+    return;
+  }
+  try {
+    const r = await fetch(dav(path), { headers: { 'Authorization': auth() } });
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const video = document.createElement('video');
+    video.src = blobUrl; video.muted = true; video.preload = 'metadata';
+    await new Promise((res, rej) => {
+      video.onloadedmetadata = () => { video.currentTime = Math.min(1, video.duration * 0.1); };
+      video.onseeked = res; video.onerror = rej; setTimeout(rej, 8000);
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 300; canvas.height = 170;
+    canvas.getContext('2d').drawImage(video, 0, 0, 300, 170);
+    const thumbData = canvas.toDataURL('image/jpeg', 0.7);
+    _vidThumbCache.set(path, thumbData);
+    URL.revokeObjectURL(blobUrl);
+    const current = el?.id ? document.getElementById(el.id) : null;
+    if (current) current.outerHTML = `<img class="thumb" src="${thumbData}" alt="">`;
+  } catch(e) { /* mantém ícone */ }
+}
 
 function startSlideshowFromFolder() {
-  SS.items = S.lastItems.filter(it => !it.isDir && isImg(it.name));
-  if (!SS.items.length) { toast('Sem fotos nesta pasta.', 'err'); return; }
+  SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
+  if (!SS.items.length) { toast('Sem fotos ou vídeos nesta pasta.', 'err'); return; }
   SS.idx = 0; SS.paused = false;
   document.getElementById('slideshow-ov').classList.add('show');
   const el = document.getElementById('slideshow-ov');
@@ -1853,8 +1913,8 @@ function startSlideshowFromFolder() {
 }
 
 function startSlideshow() {
-  SS.items = S.galleryItems.filter(it => isImg(it.name));
-  if (!SS.items.length) { toast('Sem imagens para slideshow.', 'err'); return; }
+  SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
+  if (!SS.items.length) { toast('Sem fotos ou vídeos para slideshow.', 'err'); return; }
   SS.idx = S.galleryIdx || 0;
   SS.paused = false;
   closeGallery();
@@ -1869,18 +1929,100 @@ function ssShow() {
   const it = SS.items[SS.idx];
   if (!it) return;
   const img = document.getElementById('ss-img');
-  img.classList.add('fade');
-  setTimeout(() => {
-    authImg(img, dav(it.path));
-    img.onload = () => img.classList.remove('fade');
-    img.onerror = () => { img.classList.remove('fade'); ssNext(); };
-  }, 400);
+  const vid = document.getElementById('ss-vid');
+  SS.isVideo = isVid(it.name);
+
   document.getElementById('ss-counter').textContent = (SS.idx+1) + ' / ' + SS.items.length;
   document.getElementById('ss-title').textContent = it.name;
-  document.getElementById('ss-sub').textContent = it.dateStr || '';
+  document.getElementById('ss-sub').textContent = (SS.isVideo ? '🎬 ' : '🖼️ ') + (it.dateStr || '');
+
   const prog = document.getElementById('ss-prog');
   prog.style.transition = 'none'; prog.style.width = '0%';
-  setTimeout(() => { prog.style.transition = `width ${SS.speed}ms linear`; prog.style.width = '100%'; }, 50);
+
+  if (SS.isVideo) {
+    // Mostrar vídeo, esconder imagem
+    img.style.display = 'none';
+    vid.style.display = 'block';
+    vid.style.opacity = '0';
+    vid.pause();
+    vid.src = '';
+    // Sem interval para vídeos — avança quando termina
+    if (SS.interval) { clearInterval(SS.interval); SS.interval = null; }
+    // Mostrar indicador de loading
+    let ssLoader = document.getElementById('ss-loader');
+    if (!ssLoader) {
+      ssLoader = document.createElement('div');
+      ssLoader.id = 'ss-loader';
+      ssLoader.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:12px;color:rgba(255,255,255,.8);font-size:13px;pointer-events:none;';
+      ssLoader.innerHTML = '<div class="spin" style="width:36px;height:36px;border-width:3px;border-color:rgba(255,255,255,.3);border-top-color:#fff"></div><div id="ss-loader-txt">⬇️ A carregar vídeo...</div>';
+      document.getElementById('slideshow-ov').appendChild(ssLoader);
+    }
+    ssLoader.style.display = 'flex';
+    const loaderTxt = document.getElementById('ss-loader-txt');
+    // Carregar vídeo com auth via proxy
+    // Cancela download anterior se existir
+    if (SS.fetchAbort) { SS.fetchAbort.abort(); }
+    SS.fetchAbort = new AbortController();
+    fetch(dav(it.path), {
+      headers: { 'Authorization': auth() },
+      signal: SS.fetchAbort.signal
+    }).then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const total = parseInt(r.headers.get('content-length') || '0');
+      // Streaming progress
+      const reader = r.body.getReader();
+      const chunks = [];
+      let received = 0;
+      const pump = () => reader.read().then(({ done, value }) => {
+        if (done) return chunks;
+        chunks.push(value);
+        received += value.length;
+        if (total && loaderTxt) {
+          const pct = Math.round(received / total * 100);
+          loaderTxt.textContent = `⬇️ ${pct}% — ${fmtSz(received)}`;
+        }
+        return pump();
+      });
+      return pump().then(() => new Blob(chunks));
+    }).then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      vid.src = blobUrl;
+      vid.style.opacity = '1';
+      if (ssLoader) ssLoader.style.display = 'none';
+      vid.play().catch(() => {});
+      vid.onended = () => {
+        URL.revokeObjectURL(blobUrl);
+        if (!SS.paused) ssNext();
+      };
+      vid.onloadedmetadata = () => {
+        const dur = vid.duration * 1000 || SS.speed;
+        prog.style.transition = `width ${dur}ms linear`;
+        prog.style.width = '100%';
+      };
+    }).catch(e => {
+      if (ssLoader) ssLoader.style.display = 'none';
+      if (loaderTxt) loaderTxt.textContent = '❌ Erro: ' + e.message;
+      setTimeout(() => ssNext(), 2000);
+    });
+  } else {
+    // Mostrar imagem, esconder vídeo
+    vid.style.display = 'none';
+    vid.pause(); vid.src = '';
+    img.style.display = 'block';
+    img.classList.add('fade');
+    setTimeout(() => {
+      authImg(img, dav(it.path));
+      img.onload = () => img.classList.remove('fade');
+      img.onerror = () => { img.classList.remove('fade'); ssNext(); };
+    }, 300);
+    // Barra de progresso normal para fotos
+    setTimeout(() => {
+      prog.style.transition = `width ${SS.speed}ms linear`;
+      prog.style.width = '100%';
+    }, 50);
+    // Reactiva interval para fotos
+    ssPlay();
+  }
 }
 
 function ssPlay() {
@@ -1889,6 +2031,9 @@ function ssPlay() {
 }
 
 function ssNext() {
+  // Limpa vídeo actual se existir
+  const vid = document.getElementById('ss-vid');
+  if (vid && vid.src) { vid.pause(); URL.revokeObjectURL(vid.src); vid.src = ''; }
   SS.idx = (SS.idx + 1) % SS.items.length;
   ssShow();
 }
@@ -1924,15 +2069,23 @@ function ssInfo() {
 
 function closeSlideshow() {
   clearInterval(SS.interval); SS.interval = null;
+  // Cancela download de vídeo em curso
+  if (SS.fetchAbort) { SS.fetchAbort.abort(); SS.fetchAbort = null; }
+  const vid = document.getElementById('ss-vid');
+  if (vid) { vid.pause(); if (vid.src && vid.src.startsWith('blob:')) { URL.revokeObjectURL(vid.src); } vid.src = ''; }
+  // Esconde loader
+  const loader = document.getElementById('ss-loader');
+  if (loader) loader.style.display = 'none';
   document.getElementById('slideshow-ov').classList.remove('show');
   if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
   else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
 }
 
 // Touch swipe no slideshow
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
   let t0=0, tx=0;
   const el = document.getElementById('slideshow-ov');
+  if (!el) return;
   el.addEventListener('touchstart', e => { t0=Date.now(); tx=e.touches[0].clientX; }, {passive:true});
   el.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - tx;
@@ -1942,7 +2095,7 @@ function closeSlideshow() {
       if (!SS.paused) { clearInterval(SS.interval); ssPlay(); }
     }
   }, {passive:true});
-})();
+});
 
 // Touch swipe + pinch zoom
 let _gTx = null, _gPd = null;
@@ -2013,16 +2166,65 @@ function closePdf() { document.getElementById('pdf-ov').classList.remove('show')
 // ─── MEDIA (video/audio) ──────────────────────────────────────────────────────
 function openMedia(p, nm) {
   const ext = ex(nm);
-  const tag = VE.includes(ext) ? 'video' : 'audio';
-  const attrs = VE.includes(ext) ? 'style="max-width:88vw;max-height:76vh;border-radius:10px;" preload="metadata"' : 'controls style="width:100%;margin-top:20px"';
-  // Reuse gallery overlay as simple viewer
-  const ovHtml = `
-    <div style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px">
-      <div style="color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center">${nm}</div>
-      <${tag} src="${dav(p)}" controls autoplay ${attrs}></${tag}>
-      <button onclick="this.closest('[style]').remove()" style="padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer">✕ Fechar</button>
-    </div>`;
-  document.body.insertAdjacentHTML('beforeend', ovHtml);
+  const isVideo = VE.includes(ext);
+  const tag = isVideo ? 'video' : 'audio';
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
+
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center';
+  titleEl.textContent = nm;
+
+  // Cria o elemento de media
+  const mediaEl = document.createElement(tag);
+  mediaEl.controls = true;
+  mediaEl.autoplay = true;
+  mediaEl.preload = 'metadata';
+  if (isVideo) {
+    mediaEl.style.cssText = 'max-width:90vw;max-height:72vh;border-radius:10px;';
+  } else {
+    mediaEl.style.cssText = 'width:90vw;margin-top:10px;';
+  }
+
+  // Usa MediaSource + fetch com Authorization para streaming real
+  // Suporta seek, pause, etc.
+  const proxyUrl = dav(p);
+  
+  // Tenta abrir via fetch streaming
+  (async () => {
+    try {
+      const r = await fetch(proxyUrl, { headers: { 'Authorization': auth() } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const blob = await r.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      mediaEl.src = blobUrl;
+      mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+      loadingEl.style.display = 'none';
+    } catch(e) {
+      loadingEl.textContent = '❌ ' + e.message;
+    }
+  })();
+
+  const loadingEl = document.createElement('div');
+  loadingEl.style.cssText = 'color:rgba(255,255,255,.6);font-size:13px;text-align:center';
+  loadingEl.textContent = '⏳ A carregar vídeo...';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer;margin-top:8px';
+  closeBtn.textContent = '✕ Fechar';
+  closeBtn.onclick = () => {
+    mediaEl.pause();
+    if (mediaEl.src && mediaEl.src.startsWith('blob:')) URL.revokeObjectURL(mediaEl.src);
+    overlay.remove();
+  };
+
+  overlay.appendChild(titleEl);
+  overlay.appendChild(mediaEl);
+  overlay.appendChild(loadingEl);
+  overlay.appendChild(closeBtn);
+  overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
+  document.body.appendChild(overlay);
 }
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────
@@ -2050,7 +2252,7 @@ async function shareItem(p, nm) {
         <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Link criado. Qualquer pessoa com o link pode ver:</p>
         <div class="share-link-box">
           <input type="text" id="share-url-inp" value="${shareUrl}" readonly>
-          <button onclick="copyShareLink()">Copiar</button>
+          <button onclick="window.copyShareLink()">Copiar</button>
         </div>
         <p style="font-size:12px;color:var(--text2);line-height:1.5">⚠️ Link público. Partilha apenas com quem confias.</p>`;
     } else {
@@ -2136,7 +2338,7 @@ function renderSearchResults(results, q, local=false) {
   }
   el.innerHTML = (local ? `<div style="padding:6px 16px;font-size:11px;color:var(--text2);background:var(--bg2)">⚠️ Pesquisa na pasta atual — DASL não suportado pelo servidor</div>` : '') +
     results.map(it => `
-      <div class="sr-item" onclick="srClick('${esc(it.path)}',${it.isDir},'${esc(it.name)}')">
+      <div class="sr-item" onclick="window.srClick('${esc(it.path)}',${it.isDir},'${esc(it.name)}')">
         <span style="font-size:18px;flex-shrink:0">${it.isDir?'📁':fIcon(it.name)}</span>
         <div style="min-width:0;flex:1">
           <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}</div>
@@ -2189,7 +2391,7 @@ async function openTrash() {
         ${items.map(it=>`<div class="trash-row">
           <span class="trash-nm">${fIcon(it.fname)} ${it.fname}</span>
           <span class="trash-dt">${it.date||''}</span>
-          <button class="trash-restore" onclick="restoreItem('${esc(it.href)}','${esc(it.fname)}')">↩️ Restaurar</button>
+          <button class="trash-restore" onclick="window.restoreItem('${esc(it.href)}','${esc(it.fname)}')">↩️ Restaurar</button>
         </div>`).join('')}
       </div>`;
   } catch(e) {
@@ -2395,8 +2597,9 @@ document.addEventListener('keydown', e => {
 });
 
 // Click outside search closes it
-document.getElementById('search-ov').addEventListener('click', e => {
-  if (e.target === document.getElementById('search-ov')) closeSearch();
+document.addEventListener('DOMContentLoaded', () => {
+  const searchOv = document.getElementById('search-ov');
+  if (searchOv) searchOv.addEventListener('click', e => { if (e.target === searchOv) closeSearch(); });
 });
 
 
@@ -2686,7 +2889,7 @@ function renderCalendar() {
     const numLabel = isToday ? `<div class="cal-day-num"><span style="background:var(--primary);color:#fff;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">${d}</span></div>` : `<div class="cal-day-num">${d}</div>`;
     const evHtml = dayEvs.slice(0,3).map(ev=>`<div class="cal-ev" style="background:${ev.color}" title="${ev.summary}">${ev.summary}</div>`).join('');
     const more = dayEvs.length>3 ? `<div style="font-size:9px;color:var(--text2)">+${dayEvs.length-3} mais</div>` : '';
-    grid += `<div class="cal-day${isToday?' today':''}" onclick="calDayClick(${d},${month},${year})">${numLabel}${evHtml}${more}</div>`;
+    grid += `<div class="cal-day${isToday?' today':''}" onclick="window.calDayClick(${d},${month},${year})">${numLabel}${evHtml}${more}</div>`;
   }
   // Fill remaining
   const total = startMon + daysInMonth;
@@ -2705,7 +2908,7 @@ function renderCalendar() {
         <div class="cal-ev-time">${ev.start.toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})} · ${ev.timeStr}</div>
       </div>
       <div class="cal-ev-cal">${ev.calName}</div>
-      <button class="cal-ev-del" onclick="deleteEvent('${esc(ev.evHref)}','${esc(ev.calHref)}','${esc(ev.summary)}')" title="Apagar">🗑️</button>
+      <button class="cal-ev-del" onclick="window.deleteEvent('${esc(ev.evHref)}','${esc(ev.calHref)}','${esc(ev.summary)}')" title="Apagar">🗑️</button>
     </div>`).join('')}` : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:16px">Sem eventos este mês</div>';
 
   document.getElementById('cal-body').innerHTML = grid + listHtml;
@@ -2879,7 +3082,7 @@ function renderNotesList(notes) {
     const preview = (n.content || '').replace(/[\r\n]+/g, ' ').trim().substring(0, 90) || 'Nota vazia';
     const date    = n.modified ? new Date(n.modified * 1000).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) : '';
     const catColor = n.category ? stringToColor(n.category) : '';
-    return '<div class="note-item' + (currentNote && currentNote.id === n.id ? ' active' : '') + '" onclick="openNote(' + JSON.stringify(n.id) + ')">' +
+    return '<div class="note-item' + (currentNote && currentNote.id === n.id ? ' active' : '') + '" onclick="window.openNote(' + JSON.stringify(n.id) + ')">' +
       '<div class="note-item-title">' + (n.title || '(sem título)') + '</div>' +
       '<div class="note-item-preview">' + preview + '</div>' +
       '<div class="note-item-meta">' +
@@ -3049,7 +3252,7 @@ async function openVersions(path, name, fileid) {
           <div class="ver-date">${i===0?'⭐ Versão anterior · ':''}${v.date?fmtDate(v.date):'Data desconhecida'}</div>
           <div class="ver-size">${fmtSz(v.size)}</div>
         </div>
-        <button class="ver-restore" onclick="restoreVersion('${esc(v.href)}','${esc(name)}')">↩️ Restaurar</button>
+        <button class="ver-restore" onclick="window.restoreVersion('${esc(v.href)}','${esc(name)}')">↩️ Restaurar</button>
       </div>`).join('')+'</div>';
   } catch(e) {
     document.getElementById('ver-list').innerHTML = `<p style="color:var(--text2);font-size:13px;padding:16px;text-align:center">Erro: ${e.message}</p>`;
@@ -3128,11 +3331,11 @@ function renderTagsModal() {
   const color = id => { const h = parseInt(id)*137%360; return `hsl(${h},55%,45%)`; };
 
   document.getElementById('tags-current').innerHTML = current.length
-    ? current.map(t=>`<span class="tag-chip" style="background:${color(t.id)}20;color:${color(t.id)}" onclick="removeTag('${t.id}','${esc(t.name)}')">${t.name} <span class="tag-chip-x">✕</span></span>`).join('')
+    ? current.map(t=>`<span class="tag-chip" style="background:${color(t.id)}20;color:${color(t.id)}" onclick="window.removeTag('${t.id}','${esc(t.name)}')">${t.name} <span class="tag-chip-x">✕</span></span>`).join('')
     : '<span style="font-size:12px;color:var(--text2);padding:6px">Sem tags ainda</span>';
 
   document.getElementById('tags-available').innerHTML = available.length
-    ? available.map(t=>`<button class="tag-opt" style="color:${color(t.id)}" onclick="assignTag('${t.id}','${esc(t.name)}')">${t.name}</button>`).join('')
+    ? available.map(t=>`<button class="tag-opt" style="color:${color(t.id)}" onclick="window.assignTag('${t.id}','${esc(t.name)}')">${t.name}</button>`).join('')
     : '<span style="font-size:12px;color:var(--text2)">Sem tags disponíveis</span>';
 }
 
@@ -3198,7 +3401,7 @@ async function openTagFilter() {
     });
     const strip = document.getElementById('tag-filter-strip');
     strip.innerHTML = '<span style="font-size:11px;font-weight:700;color:var(--text2);align-self:center">🏷️</span>'+
-      tags.map(t=>`<span class="tag-chip" style="background:var(--bg2);color:var(--text);border:1.5px solid var(--border)" onclick="toggleTagFilter('${t.id}','${esc(t.name)}',this)">${t.name}</span>`).join('')+
+      tags.map(t=>`<span class="tag-chip" style="background:var(--bg2);color:var(--text);border:1.5px solid var(--border)" onclick="window.toggleTagFilter('${t.id}','${esc(t.name)}',this)">${t.name}</span>`).join('')+
       (activeTagFilter?`<button class="btn btn-g" style="padding:4px 10px;font-size:11px" onclick="clearTagFilter()">✕ Limpar</button>`:'');
     strip.classList.add('show');
   } catch(e) { toast('Erro ao carregar tags: '+e.message,'err'); }
@@ -3499,3 +3702,176 @@ document.addEventListener('visibilitychange', () => {
   }, { passive: true });
 })();
 
+
+
+// ─── EXPOSE TO GLOBAL SCOPE ───────────────────────────────────────────────
+// Usa Object.assign para garantir que o Vite/Terser não optimiza as referências
+Object.assign(globalThis, {
+  applyTheme,
+  renderThemeDots,
+  renderThemeGrid,
+  moveItem,
+  autoRename,
+  _imgCacheCleanup,
+  _imgNext,
+  _imgThrottle,
+  _imgCacheSet,
+  thumbUrl,
+  authImg,
+  normPath,
+  toast,
+  showM,
+  hideM,
+  fmtSz,
+  fmtDate,
+  fIcon,
+  iCls,
+  toggleDrop,
+  closeDrop,
+  setupOffline,
+  doLogin,
+  setLE,
+  initApp,
+  doLogout,
+  loadAvatar,
+  setAvatar,
+  uploadAvatar,
+  openProfile,
+  generateVideoThumb,
+  folderIcon,
+  saveProfile,
+  setEmojiAvatar,
+  openPassM,
+  changePass,
+  loadStorage,
+  saveFavs,
+  toggleFav,
+  renderFavs,
+  loadTree,
+  mkTI,
+  updateTreeActive,
+  loadFiles,
+  sortItems,
+  setSort,
+  toggleSortDir,
+  setV,
+  toggleSB,
+  closeSB,
+  renderFiles,
+  card,
+  row,
+  fcClick,
+  enterSel,
+  enterOrToggleSel,
+  toggleSel,
+  clearSel,
+  selAll,
+  updateSelBar,
+  tStart,
+  tEnd,
+  addSwipeListeners,
+  bulkDelete,
+  bulkDownload,
+  bulkMoveOpen,
+  dStart,
+  dEnd,
+  handleDrop,
+  navTo,
+  openDir,
+  goBack,
+  goHome,
+  jumpTo,
+  updateBC,
+  cancelUpload,
+  uploadFolderFiles,
+  uploadFiles,
+  dlF,
+  delIt,
+  startRn,
+  doRename,
+  createFolder,
+  startMoveItem,
+  openMoveModal,
+  doMove,
+  openGallery,
+  renderGallery,
+  galleryNav,
+  galleryGoTo,
+  galleryZoomToggle,
+  closeGallery,
+  startSlideshowFromFolder,
+  startSlideshow,
+  ssShow,
+  ssPlay,
+  ssNext,
+  ssPause,
+  ssSpeed,
+  ssInfo,
+  closeSlideshow,
+  setupGalleryTouch,
+  openPdf,
+  renderPdfPage,
+  pdfNav,
+  closePdf,
+  openMedia,
+  shareItem,
+  copyShareLink,
+  openSearch,
+  closeSearch,
+  schedSearch,
+  execSearch,
+  renderSearchResults,
+  srClick,
+  openTrash,
+  restoreItem,
+  emptyTrash,
+  openActivity,
+  openQuota,
+  renderQuota,
+  installPWA,
+  switchTab,
+  loadWeather,
+  calNav,
+  loadCalendar,
+  loadCalEvents,
+  parseVEvent,
+  renderCalendar,
+  calDayClick,
+  submitNewEvent,
+  deleteEvent,
+  ensureNotesDir,
+  noteToText,
+  textToNote,
+  loadNotes,
+  renderNotesList,
+  stringToColor,
+  filterNotes,
+  openNote,
+  notesBack,
+  noteChanged,
+  saveNote,
+  newNote,
+  deleteNote,
+  openVersions,
+  restoreVersion,
+  openTags,
+  renderTagsModal,
+  assignTag,
+  removeTag,
+  createAndAssignTag,
+  openTagFilter,
+  toggleTagFilter,
+  loadTaggedFiles,
+  clearTagFilter,
+  toggleFab,
+  closeFab,
+  checkUploadQueue,
+  showResumeModal,
+  restoreSession,
+  checkPendingShares,
+  S,
+  SS,
+  UPQ,
+  UQ,
+  THEMES,
+});
