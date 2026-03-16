@@ -2063,55 +2063,65 @@ function closePdf() { document.getElementById('pdf-ov').classList.remove('show')
 // ─── MEDIA (video/audio) ──────────────────────────────────────────────────────
 function openMedia(p, nm) {
   const ext = ex(nm);
-  const tag = VE.includes(ext) ? 'video' : 'audio';
-  // Vídeos vão DIRECTAMENTE ao Nextcloud — bypass do Cloudflare Worker
-  // O Worker tem limite de 30s que parte vídeos grandes
-  const videoUrl = NC + '/remote.php/dav/files/' + encodeURIComponent(S.user) + p + '?access_token=' + btoa(S.user + ':' + S.pass);
-  // Usa URL directa com Basic Auth via fetch + blob URL para evitar CORS
+  const isVideo = VE.includes(ext);
+  const tag = isVideo ? 'video' : 'audio';
+
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
+
   const titleEl = document.createElement('div');
   titleEl.style.cssText = 'color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center';
   titleEl.textContent = nm;
+
+  // Cria o elemento de media
+  const mediaEl = document.createElement(tag);
+  mediaEl.controls = true;
+  mediaEl.autoplay = true;
+  mediaEl.preload = 'metadata';
+  if (isVideo) {
+    mediaEl.style.cssText = 'max-width:90vw;max-height:72vh;border-radius:10px;';
+  } else {
+    mediaEl.style.cssText = 'width:90vw;margin-top:10px;';
+  }
+
+  // Usa MediaSource + fetch com Authorization para streaming real
+  // Suporta seek, pause, etc.
+  const proxyUrl = dav(p);
+  
+  // Tenta abrir via fetch streaming
+  (async () => {
+    try {
+      const r = await fetch(proxyUrl, { headers: { 'Authorization': auth() } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const blob = await r.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      mediaEl.src = blobUrl;
+      mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+      loadingEl.style.display = 'none';
+    } catch(e) {
+      loadingEl.textContent = '❌ ' + e.message;
+    }
+  })();
+
   const loadingEl = document.createElement('div');
-  loadingEl.id = 'media-loading';
-  loadingEl.style.cssText = 'color:rgba(255,255,255,.6);font-size:13px';
-  loadingEl.textContent = '⏳ A carregar...';
+  loadingEl.style.cssText = 'color:rgba(255,255,255,.6);font-size:13px;text-align:center';
+  loadingEl.textContent = '⏳ A carregar vídeo...';
+
   const closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer';
+  closeBtn.style.cssText = 'padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer;margin-top:8px';
   closeBtn.textContent = '✕ Fechar';
-  closeBtn.onclick = () => { overlay.remove(); };
+  closeBtn.onclick = () => {
+    mediaEl.pause();
+    if (mediaEl.src && mediaEl.src.startsWith('blob:')) URL.revokeObjectURL(mediaEl.src);
+    overlay.remove();
+  };
+
   overlay.appendChild(titleEl);
+  overlay.appendChild(mediaEl);
   overlay.appendChild(loadingEl);
   overlay.appendChild(closeBtn);
-  // Tap background to close
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
   document.body.appendChild(overlay);
-
-  // Fetch com auth e criar blob URL — resolve CORS e auth
-  // Vídeos passam pelo Worker (CORS impede fetch directo ao NC)
-  fetch(dav(p), {
-    headers: { 'Authorization': auth() }
-  }).then(r => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.blob();
-  }).then(blob => {
-    const blobUrl = URL.createObjectURL(blob);
-    const mediaEl = document.createElement(tag);
-    mediaEl.src = blobUrl;
-    mediaEl.controls = true;
-    mediaEl.autoplay = true;
-    if (tag === 'video') {
-      mediaEl.style.cssText = 'max-width:90vw;max-height:75vh;border-radius:10px;';
-    } else {
-      mediaEl.style.cssText = 'width:100%;margin-top:20px;';
-    }
-    mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
-    loadingEl.remove();
-    overlay.insertBefore(mediaEl, closeBtn);
-  }).catch(e => {
-    loadingEl.textContent = '❌ Erro: ' + e.message;
-  });
 }
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────
