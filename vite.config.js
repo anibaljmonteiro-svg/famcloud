@@ -6,12 +6,12 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
-    // Manter nomes das funções para que window.X = fn funcione correctamente
-    minify: 'terser',
-    terserOptions: {
-      compress: { drop_console: true },
-      mangle: false, // NÃO renomear variáveis — essencial para window.* exports
-    },
+    // esbuild built-in com keep_names — preserva nomes para globalThis exports
+    minify: 'esbuild',
+  },
+  esbuild: {
+    keepNames: true,  // preserva nomes de funções — essencial para Object.assign(globalThis)
+    drop: ['console', 'debugger'],
   },
 
   server: {

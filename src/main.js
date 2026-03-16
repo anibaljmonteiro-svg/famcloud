@@ -3704,172 +3704,175 @@ document.addEventListener('visibilitychange', () => {
 
 
 
-// ─── EXPOSE TO GLOBAL SCOPE (required for HTML onclick handlers) ───────────
-window.applyTheme = applyTheme;
-window.renderThemeDots = renderThemeDots;
-window.renderThemeGrid = renderThemeGrid;
-window.moveItem = moveItem;
-window.autoRename = autoRename;
-window._imgCacheCleanup = _imgCacheCleanup;
-window._imgNext = _imgNext;
-window._imgThrottle = _imgThrottle;
-window._imgCacheSet = _imgCacheSet;
-window.thumbUrl = thumbUrl;
-window.authImg = authImg;
-window.normPath = normPath;
-window.toast = toast;
-window.showM = showM;
-window.hideM = hideM;
-window.fmtSz = fmtSz;
-window.fmtDate = fmtDate;
-window.fIcon = fIcon;
-window.iCls = iCls;
-window.toggleDrop = toggleDrop;
-window.closeDrop = closeDrop;
-window.setupOffline = setupOffline;
-window.doLogin = doLogin;
-window.setLE = setLE;
-window.initApp = initApp;
-window.doLogout = doLogout;
-window.loadAvatar = loadAvatar;
-window.setAvatar = setAvatar;
-window.uploadAvatar = uploadAvatar;
-window.openProfile = openProfile;
-window.generateVideoThumb = generateVideoThumb;
-window.folderIcon = folderIcon;
-window.saveProfile = saveProfile;
-window.setEmojiAvatar = setEmojiAvatar;
-window.openPassM = openPassM;
-window.changePass = changePass;
-window.loadStorage = loadStorage;
-window.saveFavs = saveFavs;
-window.toggleFav = toggleFav;
-window.renderFavs = renderFavs;
-window.loadTree = loadTree;
-window.mkTI = mkTI;
-window.updateTreeActive = updateTreeActive;
-window.loadFiles = loadFiles;
-window.sortItems = sortItems;
-window.setSort = setSort;
-window.toggleSortDir = toggleSortDir;
-window.setV = setV;
-window.toggleSB = toggleSB;
-window.closeSB = closeSB;
-window.renderFiles = renderFiles;
-window.card = card;
-window.row = row;
-window.fcClick = fcClick;
-window.enterSel = enterSel;
-window.enterOrToggleSel = enterOrToggleSel;
-window.toggleSel = toggleSel;
-window.clearSel = clearSel;
-window.selAll = selAll;
-window.updateSelBar = updateSelBar;
-window.tStart = tStart;
-window.tEnd = tEnd;
-window.addSwipeListeners = addSwipeListeners;
-window.bulkDelete = bulkDelete;
-window.bulkDownload = bulkDownload;
-window.bulkMoveOpen = bulkMoveOpen;
-window.dStart = dStart;
-window.dEnd = dEnd;
-window.handleDrop = handleDrop;
-window.navTo = navTo;
-window.openDir = openDir;
-window.goBack = goBack;
-window.goHome = goHome;
-window.jumpTo = jumpTo;
-window.updateBC = updateBC;
-window.cancelUpload = cancelUpload;
-window.uploadFolderFiles = uploadFolderFiles;
-window.uploadFiles = uploadFiles;
-window.uploadFiles_LEGACY = uploadFiles_LEGACY;
-window.dlF = dlF;
-window.delIt = delIt;
-window.startRn = startRn;
-window.doRename = doRename;
-window.createFolder = createFolder;
-window.startMoveItem = startMoveItem;
-window.openMoveModal = openMoveModal;
-window.doMove = doMove;
-window.openGallery = openGallery;
-window.renderGallery = renderGallery;
-window.galleryNav = galleryNav;
-window.galleryGoTo = galleryGoTo;
-window.galleryZoomToggle = galleryZoomToggle;
-window.closeGallery = closeGallery;
-window.startSlideshowFromFolder = startSlideshowFromFolder;
-window.startSlideshow = startSlideshow;
-window.ssShow = ssShow;
-window.ssPlay = ssPlay;
-window.ssNext = ssNext;
-window.ssPause = ssPause;
-window.ssSpeed = ssSpeed;
-window.ssInfo = ssInfo;
-window.closeSlideshow = closeSlideshow;
-window.setupGalleryTouch = setupGalleryTouch;
-window.openPdf = openPdf;
-window.renderPdfPage = renderPdfPage;
-window.pdfNav = pdfNav;
-window.closePdf = closePdf;
-window.openMedia = openMedia;
-window.shareItem = shareItem;
-window.copyShareLink = copyShareLink;
-window.openSearch = openSearch;
-window.closeSearch = closeSearch;
-window.schedSearch = schedSearch;
-window.execSearch = execSearch;
-window.renderSearchResults = renderSearchResults;
-window.srClick = srClick;
-window.openTrash = openTrash;
-window.restoreItem = restoreItem;
-window.emptyTrash = emptyTrash;
-window.openActivity = openActivity;
-window.openQuota = openQuota;
-window.renderQuota = renderQuota;
-window.installPWA = installPWA;
-window.switchTab = switchTab;
-window.loadWeather = loadWeather;
-window.calNav = calNav;
-window.loadCalendar = loadCalendar;
-window.loadCalEvents = loadCalEvents;
-window.parseVEvent = parseVEvent;
-window.renderCalendar = renderCalendar;
-window.calDayClick = calDayClick;
-window.submitNewEvent = submitNewEvent;
-window.deleteEvent = deleteEvent;
-window.ensureNotesDir = ensureNotesDir;
-window.noteToText = noteToText;
-window.textToNote = textToNote;
-window.loadNotes = loadNotes;
-window.renderNotesList = renderNotesList;
-window.stringToColor = stringToColor;
-window.filterNotes = filterNotes;
-window.openNote = openNote;
-window.notesBack = notesBack;
-window.noteChanged = noteChanged;
-window.saveNote = saveNote;
-window.newNote = newNote;
-window.deleteNote = deleteNote;
-window.openVersions = openVersions;
-window.restoreVersion = restoreVersion;
-window.openTags = openTags;
-window.renderTagsModal = renderTagsModal;
-window.assignTag = assignTag;
-window.removeTag = removeTag;
-window.createAndAssignTag = createAndAssignTag;
-window.openTagFilter = openTagFilter;
-window.toggleTagFilter = toggleTagFilter;
-window.loadTaggedFiles = loadTaggedFiles;
-window.clearTagFilter = clearTagFilter;
-window.toggleFab = toggleFab;
-window.closeFab = closeFab;
-window.checkUploadQueue = checkUploadQueue;
-window.showResumeModal = showResumeModal;
-window.restoreSession = restoreSession;
-window.checkPendingShares = checkPendingShares;
-window.S = S;
-window.SS = SS;
-window.UPQ = UPQ;
-window.UQ = UQ;
-window.THEMES = THEMES;
+// ─── EXPOSE TO GLOBAL SCOPE ───────────────────────────────────────────────
+// Usa Object.assign para garantir que o Vite/Terser não optimiza as referências
+Object.assign(globalThis, {
+  applyTheme,
+  renderThemeDots,
+  renderThemeGrid,
+  moveItem,
+  autoRename,
+  _imgCacheCleanup,
+  _imgNext,
+  _imgThrottle,
+  _imgCacheSet,
+  thumbUrl,
+  authImg,
+  normPath,
+  toast,
+  showM,
+  hideM,
+  fmtSz,
+  fmtDate,
+  fIcon,
+  iCls,
+  toggleDrop,
+  closeDrop,
+  setupOffline,
+  doLogin,
+  setLE,
+  initApp,
+  doLogout,
+  loadAvatar,
+  setAvatar,
+  uploadAvatar,
+  openProfile,
+  generateVideoThumb,
+  folderIcon,
+  saveProfile,
+  setEmojiAvatar,
+  openPassM,
+  changePass,
+  loadStorage,
+  saveFavs,
+  toggleFav,
+  renderFavs,
+  loadTree,
+  mkTI,
+  updateTreeActive,
+  loadFiles,
+  sortItems,
+  setSort,
+  toggleSortDir,
+  setV,
+  toggleSB,
+  closeSB,
+  renderFiles,
+  card,
+  row,
+  fcClick,
+  enterSel,
+  enterOrToggleSel,
+  toggleSel,
+  clearSel,
+  selAll,
+  updateSelBar,
+  tStart,
+  tEnd,
+  addSwipeListeners,
+  bulkDelete,
+  bulkDownload,
+  bulkMoveOpen,
+  dStart,
+  dEnd,
+  handleDrop,
+  navTo,
+  openDir,
+  goBack,
+  goHome,
+  jumpTo,
+  updateBC,
+  cancelUpload,
+  uploadFolderFiles,
+  uploadFiles,
+  uploadFiles_LEGACY,
+  dlF,
+  delIt,
+  startRn,
+  doRename,
+  createFolder,
+  startMoveItem,
+  openMoveModal,
+  doMove,
+  openGallery,
+  renderGallery,
+  galleryNav,
+  galleryGoTo,
+  galleryZoomToggle,
+  closeGallery,
+  startSlideshowFromFolder,
+  startSlideshow,
+  ssShow,
+  ssPlay,
+  ssNext,
+  ssPause,
+  ssSpeed,
+  ssInfo,
+  closeSlideshow,
+  setupGalleryTouch,
+  openPdf,
+  renderPdfPage,
+  pdfNav,
+  closePdf,
+  openMedia,
+  shareItem,
+  copyShareLink,
+  openSearch,
+  closeSearch,
+  schedSearch,
+  execSearch,
+  renderSearchResults,
+  srClick,
+  openTrash,
+  restoreItem,
+  emptyTrash,
+  openActivity,
+  openQuota,
+  renderQuota,
+  installPWA,
+  switchTab,
+  loadWeather,
+  calNav,
+  loadCalendar,
+  loadCalEvents,
+  parseVEvent,
+  renderCalendar,
+  calDayClick,
+  submitNewEvent,
+  deleteEvent,
+  ensureNotesDir,
+  noteToText,
+  textToNote,
+  loadNotes,
+  renderNotesList,
+  stringToColor,
+  filterNotes,
+  openNote,
+  notesBack,
+  noteChanged,
+  saveNote,
+  newNote,
+  deleteNote,
+  openVersions,
+  restoreVersion,
+  openTags,
+  renderTagsModal,
+  assignTag,
+  removeTag,
+  createAndAssignTag,
+  openTagFilter,
+  toggleTagFilter,
+  loadTaggedFiles,
+  clearTagFilter,
+  toggleFab,
+  closeFab,
+  checkUploadQueue,
+  showResumeModal,
+  restoreSession,
+  checkPendingShares,
+  S,
+  SS,
+  UPQ,
+  UQ,
+  THEMES,
+});
