@@ -781,7 +781,7 @@ function renderFavs() {
     return;
   }
   el.innerHTML = S.favorites.map(f => `
-    <div class="ti${S.path===f.path?' active':''}" data-path="${f.path}" onclick="navTo('${esc(f.path)}')">
+    <div class="ti${S.path===f.path?' active':''}" data-path="${f.path}" onclick="window.navTo('${esc(f.path)}')">
       <span class="ti-ic">⭐</span>
       <span class="ti-nm">${f.name}</span>
       <span class="ti-star on" onclick="toggleFav('${esc(f.path)}','${esc(f.name)}',event)" title="Remover">✕</span>
@@ -1038,27 +1038,27 @@ function card(it) {
   } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
-  const clickFn = isDir ? `openDir('${sp}')` :
-    isImg(nm) ? `openGallery('${sp}')` :
-    isPdf(nm) ? `openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `openMedia('${sp}','${sn}')` :
-    `dlF('${sp}','${sn}')`;
+  const clickFn = isDir ? `window.openDir('${sp}')` :
+    isImg(nm) ? `window.openGallery('${sp}')` :
+    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
+    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
+    `window.dlF('${sp}','${sn}')`;
   return `<div class="fc${isDir?' folder':''}${sel?' selected':''}"
-    onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();enterSel('${sp}')"
-    ontouchstart="tStart(event,'${sp}')" ontouchend="tEnd()"
+    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
+    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
+    ontouchstart="window.tStart(event,'${sp}')" ontouchend="window.tEnd()"
     draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
-    <div class="fc-chk" onclick="event.stopPropagation();enterOrToggleSel('${sp}')">✓</div>
+    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())window.dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
+    <div class="fc-chk" onclick="event.stopPropagation();window.enterOrToggleSel('${sp}')">✓</div>
     <div class="fac">
-      ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();dlF('${sp}','${sn}',${isDir})" title="${isDir?'Download ZIP':'Download'}">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="event.stopPropagation();shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
-      <button class="fab fa-rn" onclick="event.stopPropagation();startRn('${sp}','${sn}')" title="Renomear">✏️</button>
-      <button class="fab fa-mv" onclick="event.stopPropagation();startMoveItem('${sp}','${sn}')" title="Mover">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="event.stopPropagation();openVersions('${sp}','${sn}','${fileid}')" title="Versões">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="event.stopPropagation();openTags('${sp}','${sn}','${fileid}')" title="Tags">🏷️</button>
-      <button class="fab fa-del" onclick="event.stopPropagation();delIt('${sp}','${sn}')" title="Apagar">🗑️</button>
+      ${!isDir?`<button class="fab fa-dl" onclick="event.stopPropagation();window.dlF('${sp}','${sn}',${isDir})" title="${isDir?'Download ZIP':'Download'}">⬇️</button>`:''}
+      <button class="fab fa-sh" onclick="event.stopPropagation();window.shareItem('${sp}','${sn}')" title="Partilhar">🔗</button>
+      <button class="fab fa-rn" onclick="event.stopPropagation();window.startRn('${sp}','${sn}')" title="Renomear">✏️</button>
+      <button class="fab fa-mv" onclick="event.stopPropagation();window.startMoveItem('${sp}','${sn}')" title="Mover">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="event.stopPropagation();window.openVersions('${sp}','${sn}','${fileid}')" title="Versões">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="event.stopPropagation();window.openTags('${sp}','${sn}','${fileid}')" title="Tags">🏷️</button>
+      <button class="fab fa-del" onclick="event.stopPropagation();window.delIt('${sp}','${sn}')" title="Apagar">🗑️</button>
     </div>
     ${inner}
     <div class="fn">${nm}</div>
@@ -1071,28 +1071,28 @@ function row(it) {
   const sp = esc(p), sn = esc(nm);
   const sz = (!isDir && size) ? fmtSz(size) : '-';
   const sel = S.selected.has(p);
-  const clickFn = isDir ? `openDir('${sp}')` :
-    isImg(nm) ? `openGallery('${sp}')` :
-    isPdf(nm) ? `openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `openMedia('${sp}','${sn}')` :
-    `dlF('${sp}','${sn}')`;
+  const clickFn = isDir ? `window.openDir('${sp}')` :
+    isImg(nm) ? `window.openGallery('${sp}')` :
+    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
+    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
+    `window.dlF('${sp}','${sn}')`;
   return `<div class="lr${sel?' selected':''}" data-path="${p}"
-    onclick="fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="event.preventDefault();enterSel('${sp}')"
+    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
+    oncontextmenu="event.preventDefault();window.enterSel('${sp}')"
     draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');handleDrop('${sp}')}"`:''}>
+    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
+    ondragend="if(!isMobile())window.dEnd(event)"
+    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
     <div class="lr-n"><div class="lr-chk">${sel?'✓':''}</div>${isDir?'📁':fIcon(nm)}<span>${nm}</span></div>
     <div class="lr-s">${sz}</div>
     <div class="lr-d">${dateStr||'-'}</div>
     <div class="lr-a" onclick="event.stopPropagation()">
-      ${!isDir?`<button class="fab fa-dl" onclick="dlF('${sp}','${sn}')">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="shareItem('${sp}','${sn}')">🔗</button>
-      <button class="fab fa-rn" onclick="startRn('${sp}','${sn}')">✏️</button>
-      <button class="fab fa-mv" onclick="startMoveItem('${sp}','${sn}')">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="openVersions('${sp}','${sn}','${fileid}')">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="openTags('${sp}','${sn}','${fileid}')">🏷️</button>
-      <button class="fab fa-del" onclick="delIt('${sp}','${sn}')">🗑️</button>
+      ${!isDir?`<button class="fab fa-dl" onclick="window.dlF('${sp}','${sn}')">⬇️</button>`:''}
+      <button class="fab fa-sh" onclick="window.shareItem('${sp}','${sn}')">🔗</button>
+      <button class="fab fa-rn" onclick="window.startRn('${sp}','${sn}')">✏️</button>
+      <button class="fab fa-mv" onclick="window.startMoveItem('${sp}','${sn}')">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="window.openVersions('${sp}','${sn}','${fileid}')">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="window.openTags('${sp}','${sn}','${fileid}')">🏷️</button>
+      <button class="fab fa-del" onclick="window.delIt('${sp}','${sn}')">🗑️</button>
     </div>
   </div>`;
 }
@@ -1832,7 +1832,7 @@ function renderGallery() {
   // strip thumbnails
   const strip = document.getElementById('gallery-strip');
   strip.innerHTML = S.galleryItems.map((g,i) =>
-    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="galleryGoTo(${i})">`
+    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="window.galleryGoTo(${i})">`
   ).join('');
   strip.querySelectorAll('img[data-src]').forEach(img => {
     const src = img.dataset.src; delete img.dataset.src; authImg(img, src);
@@ -2252,7 +2252,7 @@ async function shareItem(p, nm) {
         <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Link criado. Qualquer pessoa com o link pode ver:</p>
         <div class="share-link-box">
           <input type="text" id="share-url-inp" value="${shareUrl}" readonly>
-          <button onclick="copyShareLink()">Copiar</button>
+          <button onclick="window.copyShareLink()">Copiar</button>
         </div>
         <p style="font-size:12px;color:var(--text2);line-height:1.5">⚠️ Link público. Partilha apenas com quem confias.</p>`;
     } else {
@@ -2338,7 +2338,7 @@ function renderSearchResults(results, q, local=false) {
   }
   el.innerHTML = (local ? `<div style="padding:6px 16px;font-size:11px;color:var(--text2);background:var(--bg2)">⚠️ Pesquisa na pasta atual — DASL não suportado pelo servidor</div>` : '') +
     results.map(it => `
-      <div class="sr-item" onclick="srClick('${esc(it.path)}',${it.isDir},'${esc(it.name)}')">
+      <div class="sr-item" onclick="window.srClick('${esc(it.path)}',${it.isDir},'${esc(it.name)}')">
         <span style="font-size:18px;flex-shrink:0">${it.isDir?'📁':fIcon(it.name)}</span>
         <div style="min-width:0;flex:1">
           <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}</div>
@@ -2391,7 +2391,7 @@ async function openTrash() {
         ${items.map(it=>`<div class="trash-row">
           <span class="trash-nm">${fIcon(it.fname)} ${it.fname}</span>
           <span class="trash-dt">${it.date||''}</span>
-          <button class="trash-restore" onclick="restoreItem('${esc(it.href)}','${esc(it.fname)}')">↩️ Restaurar</button>
+          <button class="trash-restore" onclick="window.restoreItem('${esc(it.href)}','${esc(it.fname)}')">↩️ Restaurar</button>
         </div>`).join('')}
       </div>`;
   } catch(e) {
@@ -2889,7 +2889,7 @@ function renderCalendar() {
     const numLabel = isToday ? `<div class="cal-day-num"><span style="background:var(--primary);color:#fff;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">${d}</span></div>` : `<div class="cal-day-num">${d}</div>`;
     const evHtml = dayEvs.slice(0,3).map(ev=>`<div class="cal-ev" style="background:${ev.color}" title="${ev.summary}">${ev.summary}</div>`).join('');
     const more = dayEvs.length>3 ? `<div style="font-size:9px;color:var(--text2)">+${dayEvs.length-3} mais</div>` : '';
-    grid += `<div class="cal-day${isToday?' today':''}" onclick="calDayClick(${d},${month},${year})">${numLabel}${evHtml}${more}</div>`;
+    grid += `<div class="cal-day${isToday?' today':''}" onclick="window.calDayClick(${d},${month},${year})">${numLabel}${evHtml}${more}</div>`;
   }
   // Fill remaining
   const total = startMon + daysInMonth;
@@ -2908,7 +2908,7 @@ function renderCalendar() {
         <div class="cal-ev-time">${ev.start.toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})} · ${ev.timeStr}</div>
       </div>
       <div class="cal-ev-cal">${ev.calName}</div>
-      <button class="cal-ev-del" onclick="deleteEvent('${esc(ev.evHref)}','${esc(ev.calHref)}','${esc(ev.summary)}')" title="Apagar">🗑️</button>
+      <button class="cal-ev-del" onclick="window.deleteEvent('${esc(ev.evHref)}','${esc(ev.calHref)}','${esc(ev.summary)}')" title="Apagar">🗑️</button>
     </div>`).join('')}` : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:16px">Sem eventos este mês</div>';
 
   document.getElementById('cal-body').innerHTML = grid + listHtml;
@@ -3082,7 +3082,7 @@ function renderNotesList(notes) {
     const preview = (n.content || '').replace(/[\r\n]+/g, ' ').trim().substring(0, 90) || 'Nota vazia';
     const date    = n.modified ? new Date(n.modified * 1000).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) : '';
     const catColor = n.category ? stringToColor(n.category) : '';
-    return '<div class="note-item' + (currentNote && currentNote.id === n.id ? ' active' : '') + '" onclick="openNote(' + JSON.stringify(n.id) + ')">' +
+    return '<div class="note-item' + (currentNote && currentNote.id === n.id ? ' active' : '') + '" onclick="window.openNote(' + JSON.stringify(n.id) + ')">' +
       '<div class="note-item-title">' + (n.title || '(sem título)') + '</div>' +
       '<div class="note-item-preview">' + preview + '</div>' +
       '<div class="note-item-meta">' +
@@ -3252,7 +3252,7 @@ async function openVersions(path, name, fileid) {
           <div class="ver-date">${i===0?'⭐ Versão anterior · ':''}${v.date?fmtDate(v.date):'Data desconhecida'}</div>
           <div class="ver-size">${fmtSz(v.size)}</div>
         </div>
-        <button class="ver-restore" onclick="restoreVersion('${esc(v.href)}','${esc(name)}')">↩️ Restaurar</button>
+        <button class="ver-restore" onclick="window.restoreVersion('${esc(v.href)}','${esc(name)}')">↩️ Restaurar</button>
       </div>`).join('')+'</div>';
   } catch(e) {
     document.getElementById('ver-list').innerHTML = `<p style="color:var(--text2);font-size:13px;padding:16px;text-align:center">Erro: ${e.message}</p>`;
@@ -3331,11 +3331,11 @@ function renderTagsModal() {
   const color = id => { const h = parseInt(id)*137%360; return `hsl(${h},55%,45%)`; };
 
   document.getElementById('tags-current').innerHTML = current.length
-    ? current.map(t=>`<span class="tag-chip" style="background:${color(t.id)}20;color:${color(t.id)}" onclick="removeTag('${t.id}','${esc(t.name)}')">${t.name} <span class="tag-chip-x">✕</span></span>`).join('')
+    ? current.map(t=>`<span class="tag-chip" style="background:${color(t.id)}20;color:${color(t.id)}" onclick="window.removeTag('${t.id}','${esc(t.name)}')">${t.name} <span class="tag-chip-x">✕</span></span>`).join('')
     : '<span style="font-size:12px;color:var(--text2);padding:6px">Sem tags ainda</span>';
 
   document.getElementById('tags-available').innerHTML = available.length
-    ? available.map(t=>`<button class="tag-opt" style="color:${color(t.id)}" onclick="assignTag('${t.id}','${esc(t.name)}')">${t.name}</button>`).join('')
+    ? available.map(t=>`<button class="tag-opt" style="color:${color(t.id)}" onclick="window.assignTag('${t.id}','${esc(t.name)}')">${t.name}</button>`).join('')
     : '<span style="font-size:12px;color:var(--text2)">Sem tags disponíveis</span>';
 }
 
@@ -3401,7 +3401,7 @@ async function openTagFilter() {
     });
     const strip = document.getElementById('tag-filter-strip');
     strip.innerHTML = '<span style="font-size:11px;font-weight:700;color:var(--text2);align-self:center">🏷️</span>'+
-      tags.map(t=>`<span class="tag-chip" style="background:var(--bg2);color:var(--text);border:1.5px solid var(--border)" onclick="toggleTagFilter('${t.id}','${esc(t.name)}',this)">${t.name}</span>`).join('')+
+      tags.map(t=>`<span class="tag-chip" style="background:var(--bg2);color:var(--text);border:1.5px solid var(--border)" onclick="window.toggleTagFilter('${t.id}','${esc(t.name)}',this)">${t.name}</span>`).join('')+
       (activeTagFilter?`<button class="btn btn-g" style="padding:4px 10px;font-size:11px" onclick="clearTagFilter()">✕ Limpar</button>`:'');
     strip.classList.add('show');
   } catch(e) { toast('Erro ao carregar tags: '+e.message,'err'); }
@@ -3785,7 +3785,6 @@ Object.assign(globalThis, {
   cancelUpload,
   uploadFolderFiles,
   uploadFiles,
-  uploadFiles_LEGACY,
   dlF,
   delIt,
   startRn,
