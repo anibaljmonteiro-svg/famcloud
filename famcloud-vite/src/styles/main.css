@@ -1164,3 +1164,27 @@ body.is-offline .dz {
   60%  { transform: scaleX(0.7); opacity: 1; }
   100% { transform: scaleX(0.9); opacity: 1; }
 }
+
+/* ═══════════════════════════════════════
+   BARRA DE ESTADO DOS FICHEIROS
+═══════════════════════════════════════ */
+.files-status {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; flex-wrap: wrap;
+  padding: 6px 14px;
+  font-size: 11px; font-weight: 600; color: var(--text3);
+  letter-spacing: .3px;
+  opacity: 0; transition: opacity .3s;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--topbar-bg);
+}
+.files-status.show { opacity: 1; }
+.fs-item {
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.fs-item .fs-count {
+  color: var(--primary); font-size: 12px; font-weight: 700;
+}
+.fs-sep { color: var(--border); }

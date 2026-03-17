@@ -1045,6 +1045,7 @@ async function loadFiles(p) {
     }
     renderFiles(S.lastItems);
   } catch(e) {
+    pageLoaderDone(); // Garante que loader desaparece mesmo em erro
     if (e.name === 'AbortError') return; // Navegação cancelada — normal
     document.getElementById('fl').innerHTML = `<div class="empty"><div class="ei">⚠️</div><h3>Erro ao carregar</h3><p>${e.message}</p></div>`;
   }
@@ -1193,7 +1194,8 @@ function renderFiles(items) {
       return;
     }
 
-    // Click no card
+    // Click no card — só actua se path e name são válidos
+    if (!p || !nm) return;
     fcClick(e, p, () => {
       if (isDir) openDir(p);
       else if (isImg(nm)) openGallery(p);
@@ -1304,6 +1306,8 @@ function renderFiles(items) {
   const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
   if (ssBtn) ssBtn.style.display = hasImgs ? '' : 'none';
+  // Actualiza barra de estado com contagens
+  updateFilesStatus(items);
 }
 
 function card(it) {
@@ -1888,7 +1892,7 @@ document.addEventListener('keydown', e => {
 
 // ─── SKELETON SCREENS ────────────────────────────────────────────────────────
 function skeletonGrid(n=12) {
-  return '<div class="fgrid">' + Array.from({length:n}, () => `
+  return '<div class="fgrid sk-loading">' + Array.from({length:n}, () => `
     <div class="sk-card">
       <div class="sk sk-icon"></div>
       <div class="sk sk-nm"></div>
@@ -1896,7 +1900,7 @@ function skeletonGrid(n=12) {
     </div>`).join('') + '</div>';
 }
 function skeletonList(n=10) {
-  return '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' +
+  return '<div class="flist sk-loading"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' +
     Array.from({length:n}, () => `
     <div class="sk-row">
       <div class="sk sk-nm-r"></div>
@@ -2608,6 +2612,34 @@ function destroyVirtualScroll() {
     main.removeEventListener('scroll', main._vsHandler);
     main._vsHandler = null;
   }
+}
+
+
+// ─── BARRA DE ESTADO DOS FICHEIROS ───────────────────────────────────────────
+function updateFilesStatus(items) {
+  const el = document.getElementById('files-status');
+  if (!el || !items.length) { if(el) el.classList.remove('show'); return; }
+
+  const dirs   = items.filter(i => i.isDir).length;
+  const imgs   = items.filter(i => !i.isDir && isImg(i.name)).length;
+  const vids   = items.filter(i => !i.isDir && isVid(i.name)).length;
+  const docs   = items.filter(i => !i.isDir && isPdf(i.name)).length;
+  const others = items.filter(i => !i.isDir && !isImg(i.name) && !isVid(i.name) && !isPdf(i.name)).length;
+
+  const parts = [];
+  if (dirs)   parts.push(`<span class="fs-item">📁 <span class="fs-count">${dirs}</span> pasta${dirs!==1?'s':''}</span>`);
+  if (imgs)   parts.push(`<span class="fs-item">🖼️ <span class="fs-count">${imgs}</span> foto${imgs!==1?'s':''}</span>`);
+  if (vids)   parts.push(`<span class="fs-item">🎬 <span class="fs-count">${vids}</span> vídeo${vids!==1?'s':''}</span>`);
+  if (docs)   parts.push(`<span class="fs-item">📄 <span class="fs-count">${docs}</span> doc${docs!==1?'s':''}</span>`);
+  if (others) parts.push(`<span class="fs-item">📎 <span class="fs-count">${others}</span> outro${others!==1?'s':''}</span>`);
+
+  const total = items.length;
+  const totalSpan = `<span class="fs-item" style="color:var(--text2)">Total: <span class="fs-count">${total}</span></span>`;
+
+  el.innerHTML = parts.join('<span class="fs-sep">·</span>') +
+    (parts.length ? '<span class="fs-sep">·</span>' : '') + totalSpan;
+
+  el.classList.add('show');
 }
 
 const UPQ = {
