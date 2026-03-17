@@ -215,7 +215,7 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 const _IMG_CACHE_MAX = 150;
 const _imgCache = new Map();
 // Concorrência limitada — máx 6 fetches de imagem simultâneos
-const _IMG_CONCURRENCY = 6;
+const _IMG_CONCURRENCY = 3;
 
 // Cleanup automático do cache de imagens quando excede o limite
 function _imgCacheCleanup() {
