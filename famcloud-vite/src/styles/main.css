@@ -985,6 +985,7 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: 8px;
 }
+.sk-loading { pointer-events: none; user-select: none; }
 .sk-card {
   background: var(--card); border-radius: var(--radius);
   padding: 16px 12px 13px; display: flex; flex-direction: column;
