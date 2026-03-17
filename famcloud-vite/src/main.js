@@ -945,7 +945,22 @@ function updateTreeActive() {
 }
 
 // ─── FILE LISTING ─────────────────────────────────────────────────────────────
+
+// ─── PAGE LOADER ─────────────────────────────────────────────────────────────
+function pageLoaderStart() {
+  const el = document.getElementById('page-loader');
+  if (!el) return;
+  el.className = 'page-loader loading';
+}
+function pageLoaderDone() {
+  const el = document.getElementById('page-loader');
+  if (!el) return;
+  el.className = 'page-loader done';
+  setTimeout(() => { el.className = 'page-loader'; }, 500);
+}
+
 async function loadFiles(p) {
+  pageLoaderStart();
   const fl = document.getElementById('fl');
 
   // STALE-WHILE-REVALIDATE: mostra cache instantaneamente
@@ -953,6 +968,7 @@ async function loadFiles(p) {
   if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
     S.lastItems = cached.items;
     renderFiles(cached.items);
+    pageLoaderDone();
     _idxAdd(cached.items, p);
     // Continua em background para actualizar
     _refreshInBackground(p);
@@ -1127,10 +1143,18 @@ function closeSB() {
 function renderFiles(items) {
   const fl = document.getElementById('fl');
   fl.style.opacity = '';
+  // Desactiva interacções durante render para evitar clicks acidentais
+  fl.style.pointerEvents = 'none';
+  // Reactiva após render (num requestAnimationFrame para garantir que o DOM está pronto)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => { fl.style.pointerEvents = ''; });
+  });
   // Remove listener anterior se existir
   if (fl._delegateHandler) fl.removeEventListener('click', fl._delegateHandler);
+  if (fl._safeClick) fl.removeEventListener('click', fl._safeClick);
   if (fl._delegateCTX) fl.removeEventListener('contextmenu', fl._delegateCTX);
   if (fl._delegateTouch) fl.removeEventListener('touchstart', fl._delegateTouch);
+  if (fl._delegateTouchMove) fl.removeEventListener('touchmove', fl._delegateTouchMove);
   if (fl._delegateTouchEnd) fl.removeEventListener('touchend', fl._delegateTouchEnd);
 
   // Event delegation — um único listener para toda a grelha
@@ -1185,17 +1209,65 @@ function renderFiles(items) {
     showCtxMenu(e, card.dataset.path, card.dataset.name, card.dataset.dir==='1', card.dataset.fid||'');
   };
 
+  // Touch handling robusto para mobile
+  // Distingue tap, long press e scroll
   let _touchTimer = null;
+  let _touchStartX = 0;
+  let _touchStartY = 0;
+  let _touchMoved = false;
+  const SCROLL_THRESHOLD = 10; // px de movimento para considerar scroll
+
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
     if (!card) return;
-    _touchTimer = setTimeout(() => enterSel(card.dataset.path), 800);
+    const touch = e.touches[0];
+    _touchStartX = touch.clientX;
+    _touchStartY = touch.clientY;
+    _touchMoved = false;
+    // Inicia long press timer
+    _touchTimer = setTimeout(() => {
+      if (!_touchMoved) {
+        enterSel(card.dataset.path);
+        // Vibração haptic feedback
+        if (navigator.vibrate) navigator.vibrate(50);
+      }
+    }, 600);
   };
-  fl._delegateTouchEnd = () => { clearTimeout(_touchTimer); };
 
-  fl.addEventListener('click', fl._delegateHandler);
+  fl._delegateTouchMove = (e) => {
+    if (!_touchStartX && !_touchStartY) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - _touchStartX);
+    const dy = Math.abs(touch.clientY - _touchStartY);
+    if (dx > SCROLL_THRESHOLD || dy > SCROLL_THRESHOLD) {
+      _touchMoved = true;
+      clearTimeout(_touchTimer);
+    }
+  };
+
+  fl._delegateTouchEnd = (e) => {
+    clearTimeout(_touchTimer);
+    // Se houve movimento, é scroll — não dispara acção
+    if (_touchMoved) {
+      _touchMoved = false;
+      return;
+    }
+    _touchMoved = false;
+  };
+
+  // Click só dispara se não foi scroll
+  fl._safeClick = (e) => {
+    // Em mobile, ignorar clicks que seguem um scroll
+    if (_touchMoved) { e.stopImmediatePropagation(); return; }
+    fl._delegateHandler(e);
+  };
+
+  // Adiciona listener de touchmove para detectar scroll
+  if (fl._delegateTouchMove) fl.removeEventListener('touchmove', fl._delegateTouchMove);
+  fl.addEventListener('click', fl._safeClick);
   fl.addEventListener('contextmenu', fl._delegateCTX);
   fl.addEventListener('touchstart', fl._delegateTouch, {passive:true});
+  fl.addEventListener('touchmove', fl._delegateTouchMove, {passive:true});
   fl.addEventListener('touchend', fl._delegateTouchEnd, {passive:true});
   if (!items.length) {
     fl.innerHTML = '<div class="empty"><div class="ei">📂</div><h3>Pasta vazia</h3><p>Arrasta ficheiros aqui ou clica em "Carregar"</p></div>';
@@ -1222,12 +1294,10 @@ function renderFiles(items) {
     fl.innerHTML = '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' + items.map(row).join('') + '</div>';
     addSwipeListeners();
   }
-  // Carrega thumbnails com autenticação
+  // Sem thumbnails — lazy loading apenas para imagens do "Hoje na História"
   requestAnimationFrame(() => {
     fl.querySelectorAll('img[data-src]').forEach(img => {
-      const src = img.dataset.src;
-      const fb = img.dataset.fb || null;
-      if (src) { _lazyObserver.observe(img); } // lazy load via IntersectionObserver
+      if (img.dataset.src) _lazyObserver.observe(img);
     });
   });
   // Mostra botão slideshow se há imagens
@@ -1244,9 +1314,20 @@ function card(it) {
   if (isDir) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
-    const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
-    const fbUrl = fileid ? dav(p) : null;
-    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl||''}" alt="">`;
+    // Ícone estilizado por extensão — sem chamadas ao servidor
+    const ext = ex(nm).toUpperCase();
+    const imgColors = {
+      'JPG':'#e8f5e9,#a5d6a7', 'JPEG':'#e8f5e9,#a5d6a7',
+      'PNG':'#e3f2fd,#90caf9', 'HEIC':'#fce4ec,#f48fb1',
+      'HEIF':'#fce4ec,#f48fb1', 'GIF':'#fff8e1,#ffe082',
+      'WEBP':'#e8f5e9,#a5d6a7', 'RAW':'#f3e5f5,#ce93d8',
+      'NEF':'#f3e5f5,#ce93d8', 'CR2':'#f3e5f5,#ce93d8',
+    };
+    const [c1, c2] = (imgColors[ext] || ['#e8f5e9','#a5d6a7']).split(',');
+    inner = `<div class="fic ic-i" style="background:linear-gradient(135deg,${c1},${c2});flex-direction:column;gap:2px">
+      <span style="font-size:22px">🖼️</span>
+      <span style="font-size:8px;font-weight:700;color:#555;letter-spacing:.5px">${ext}</span>
+    </div>`;
   } else if (isVid(nm)) {
     const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
     inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
@@ -2185,7 +2266,7 @@ async function loadTodayInHistory() {
     // Escolhe uma foto aleatória
     const pick = photos[Math.floor(Math.random() * photos.length)];
     const yearsAgo = now.getFullYear() - pick.year;
-    const thumbSrc = pick.fileid ? thumbUrl(pick.fileid, 400) : dav(pick.path);
+    const thumbSrc = dav(pick.path); // carrega imagem directamente — sem preview NC
 
     el.style.display = 'block';
     el.innerHTML = `
@@ -3140,7 +3221,9 @@ function startSlideshow() {
   const el = document.getElementById('slideshow-ov');
   if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
   else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-  ssShow(); ssPlay();
+  ssShow();
+  // ssPlay só se o primeiro item não for vídeo (ssShow já gere o interval para vídeos)
+  if (!SS.items[SS.idx] || !isVid(SS.items[SS.idx].name)) ssPlay();
 }
 
 function ssShow() {
@@ -3245,6 +3328,10 @@ function ssShow() {
 
 function ssPlay() {
   if (SS.interval) clearInterval(SS.interval);
+  // Não inicia interval se o item actual for vídeo
+  // Vídeos avançam automaticamente quando terminam (via vid.onended)
+  const current = SS.items[SS.idx];
+  if (current && isVid(current.name)) return;
   SS.interval = setInterval(ssNext, SS.speed);
 }
 
@@ -3265,7 +3352,14 @@ function ssPause() {
     btn.textContent = '▶️ Continuar';
   } else {
     btn.textContent = '⏸ Pausar';
-    ssShow(); ssPlay();
+    const current = SS.items[SS.idx];
+    if (current && isVid(current.name)) {
+      // Vídeo — retoma o play do vídeo, não o interval
+      const vid = document.getElementById('ss-vid');
+      if (vid && vid.src) vid.play().catch(() => {});
+    } else {
+      ssShow(); ssPlay();
+    }
   }
 }
 
@@ -5125,7 +5219,6 @@ Object.assign(globalThis, {
   _imgNext,
   _imgThrottle,
   _imgCacheSet,
-  thumbUrl,
   authImg,
   normPath,
   toast,
