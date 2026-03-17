@@ -1215,7 +1215,7 @@ function renderFiles(items) {
   let _touchStartX = 0;
   let _touchStartY = 0;
   let _touchMoved = false;
-  const SCROLL_THRESHOLD = 10; // px de movimento para considerar scroll
+  const SCROLL_THRESHOLD = 8; // px de movimento para considerar scroll
 
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
@@ -1356,31 +1356,27 @@ function card(it) {
 
 function row(it) {
   const {name:nm, path:p, isDir, size, dateStr, fileid=''} = it;
-  const sp = esc(p), sn = esc(nm);
   const sz = (!isDir && size) ? fmtSz(size) : '-';
   const sel = S.selected.has(p);
-  const clickFn = isDir ? `window.openDir('${sp}')` :
-    isImg(nm) ? `window.openGallery('${sp}')` :
-    isPdf(nm) ? `window.openPdf('${sp}','${sn}')` :
-    isVid(nm) || isAud(nm) ? `window.openMedia('${sp}','${sn}')` :
-    `window.dlF('${sp}','${sn}')`;
-  return `<div class="lr${sel?' selected':''}" data-path="${p}"
-    onclick="window.fcClick(event,'${sp}',()=>{${clickFn}})"
-    oncontextmenu="window.showCtxMenu(event,'${sp}','${sn}',${isDir},'${fileid}')"
-    draggable="${isMobile()?'false':'true'}"
-    ondragstart="if(!isMobile())window.dStart(event,'${sp}','${sn}',${isDir})"
-    ondragend="if(!isMobile())window.dEnd(event)"
-    ${isDir?`ondragover="if(!isMobile()){event.preventDefault();this.classList.add('drag-over')}" ondragleave="this.classList.remove('drag-over')" ondrop="if(!isMobile()){event.preventDefault();this.classList.remove('drag-over');window.handleDrop('${sp}')}"`:''}>
-    <div class="lr-n"><div class="lr-chk">${sel?'✓':''}</div>${isDir?'📁':fIcon(nm)}<span>${nm}</span></div>
+  // Usa data attributes — sem onclick inline, permite event delegation e minificação
+  return `<div class="lr${sel?' selected':''}"
+    data-path="${esc(p)}" data-name="${esc(nm)}" data-dir="${isDir?1:0}" data-fid="${fileid}"
+    ${isDir?`data-prefetch="${esc(p)}"`:''}>
+    <div class="lr-n">
+      <div class="lr-chk" data-action="sel">${sel?'✓':''}</div>
+      ${isDir?'📁':fIcon(nm)}
+      <span>${nm}</span>
+    </div>
     <div class="lr-s">${sz}</div>
     <div class="lr-d">${dateStr||'-'}</div>
-    <div class="lr-a" onclick="event.stopPropagation()">
-      ${!isDir?`<button class="fab fa-dl" onclick="window.dlF('${sp}','${sn}')">⬇️</button>`:''}
-      <button class="fab fa-sh" onclick="window.shareItem('${sp}','${sn}')">🔗</button>
-      <button class="fab fa-rn" onclick="window.startRn('${sp}','${sn}')">✏️</button>
-      <button class="fab fa-mv" onclick="window.startMoveItem('${sp}','${sn}')">📦</button>
-      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" onclick="window.openVersions('${sp}','${sn}','${fileid}')">🕒</button>`:''}      <button class="fab" style="background:#fff3e0" onclick="window.openTags('${sp}','${sn}','${fileid}')">🏷️</button>
-      <button class="fab fa-del" onclick="window.delIt('${sp}','${sn}')">🗑️</button>
+    <div class="lr-a">
+      ${!isDir?`<button class="fab fa-dl" data-action="dl">⬇️</button>`:''}
+      <button class="fab fa-sh" data-action="share">🔗</button>
+      <button class="fab fa-rn" data-action="rename">✏️</button>
+      <button class="fab fa-mv" data-action="move">📦</button>
+      ${!isDir&&fileid?`<button class="fab" style="background:#e3f2fd" data-action="versions">🕒</button>`:''}
+      <button class="fab" style="background:#fff3e0" data-action="tags">🏷️</button>
+      <button class="fab fa-del" data-action="del">🗑️</button>
     </div>
   </div>`;
 }
@@ -1450,12 +1446,10 @@ function updateSelBar() {
 }
 
 // Long press for mobile
-function tStart(e, path) {
-  S.touchTimer = setTimeout(() => { enterSel(path); }, 800);
-}
-function tEnd() {
-  clearTimeout(S.touchTimer);
-}
+// tStart/tEnd mantidos para compatibilidade mas desactivados
+// O touch handling real está no event delegation do renderFiles
+function tStart(e, path) { /* desactivado — usar event delegation */ }
+function tEnd() { /* desactivado */ }
 
 // Swipe to delete in list view
 function addSwipeListeners() {
