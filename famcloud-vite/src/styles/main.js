@@ -242,7 +242,7 @@ const _lazyObserver = new IntersectionObserver((entries) => {
     }
     _lazyObserver.unobserve(img);
   });
-}, { rootMargin: '200px 0px', threshold: 0.01 });
+}, { rootMargin: '400px 0px', threshold: 0.01 });
 let _imgQueue = [], _imgActive = 0;
 function _imgNext() {
   if (_imgActive >= _IMG_CONCURRENCY || !_imgQueue.length) return;
@@ -951,6 +951,9 @@ function pageLoaderStart() {
   const el = document.getElementById('page-loader');
   if (!el) return;
   el.className = 'page-loader loading';
+  // Safety: sempre termina após 5s no máximo
+  clearTimeout(el._safetyTimer);
+  el._safetyTimer = setTimeout(() => pageLoaderDone(), 5000);
 }
 function pageLoaderDone() {
   const el = document.getElementById('page-loader');
@@ -1296,7 +1299,7 @@ function renderFiles(items) {
     fl.innerHTML = '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' + items.map(row).join('') + '</div>';
     addSwipeListeners();
   }
-  // Sem thumbnails — lazy loading apenas para imagens do "Hoje na História"
+  // Lazy loading para thumbnails e imagens
   requestAnimationFrame(() => {
     fl.querySelectorAll('img[data-src]').forEach(img => {
       if (img.dataset.src) _lazyObserver.observe(img);
@@ -1306,6 +1309,8 @@ function renderFiles(items) {
   const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
   if (ssBtn) ssBtn.style.display = hasImgs ? '' : 'none';
+  // Actualiza barra de estado com contagens
+  updateFilesStatus(items);
 }
 
 function card(it) {
@@ -1316,20 +1321,10 @@ function card(it) {
   if (isDir) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
-    // Ícone estilizado por extensão — sem chamadas ao servidor
-    const ext = ex(nm).toUpperCase();
-    const imgColors = {
-      'JPG':'#e8f5e9,#a5d6a7', 'JPEG':'#e8f5e9,#a5d6a7',
-      'PNG':'#e3f2fd,#90caf9', 'HEIC':'#fce4ec,#f48fb1',
-      'HEIF':'#fce4ec,#f48fb1', 'GIF':'#fff8e1,#ffe082',
-      'WEBP':'#e8f5e9,#a5d6a7', 'RAW':'#f3e5f5,#ce93d8',
-      'NEF':'#f3e5f5,#ce93d8', 'CR2':'#f3e5f5,#ce93d8',
-    };
-    const [c1, c2] = (imgColors[ext] || ['#e8f5e9','#a5d6a7']).split(',');
-    inner = `<div class="fic ic-i" style="background:linear-gradient(135deg,${c1},${c2});flex-direction:column;gap:2px">
-      <span style="font-size:22px">🖼️</span>
-      <span style="font-size:8px;font-weight:700;color:#555;letter-spacing:.5px">${ext}</span>
-    </div>`;
+    // Se tem fileid usa preview do Nextcloud, senão usa o ficheiro directamente
+    const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
+    const fbUrl = dav(p);
+    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl}" alt="">`;
   } else if (isVid(nm)) {
     const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
     inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
@@ -2609,6 +2604,39 @@ function destroyVirtualScroll() {
   if (main._vsHandler) {
     main.removeEventListener('scroll', main._vsHandler);
     main._vsHandler = null;
+  }
+}
+
+
+// ─── BARRA DE ESTADO DOS FICHEIROS ───────────────────────────────────────────
+function updateFilesStatus(items) {
+  const el = document.getElementById('files-status');
+  if (!el || !items.length) { if(el) el.classList.remove('show'); return; }
+
+  const dirs   = items.filter(i => i.isDir).length;
+  const imgs   = items.filter(i => !i.isDir && isImg(i.name)).length;
+  const vids   = items.filter(i => !i.isDir && isVid(i.name)).length;
+  const docs   = items.filter(i => !i.isDir && isPdf(i.name)).length;
+  const others = items.filter(i => !i.isDir && !isImg(i.name) && !isVid(i.name) && !isPdf(i.name)).length;
+
+  const parts = [];
+  if (dirs)   parts.push(`<span class="fs-item">📁 <span class="fs-count">${dirs}</span> pasta${dirs!==1?'s':''}</span>`);
+  if (imgs)   parts.push(`<span class="fs-item">🖼️ <span class="fs-count">${imgs}</span> foto${imgs!==1?'s':''}</span>`);
+  if (vids)   parts.push(`<span class="fs-item">🎬 <span class="fs-count">${vids}</span> vídeo${vids!==1?'s':''}</span>`);
+  if (docs)   parts.push(`<span class="fs-item">📄 <span class="fs-count">${docs}</span> doc${docs!==1?'s':''}</span>`);
+  if (others) parts.push(`<span class="fs-item">📎 <span class="fs-count">${others}</span> outro${others!==1?'s':''}</span>`);
+
+  const total = items.length;
+  const totalSpan = `<span class="fs-item" style="color:var(--text2)">Total: <span class="fs-count">${total}</span></span>`;
+
+  el.innerHTML = parts.join('<span class="fs-sep">·</span>') +
+    (parts.length ? '<span class="fs-sep">·</span>' : '') + totalSpan;
+
+  // Só mostra se há ficheiros (não só pastas)
+  if (imgs > 0 || vids > 0 || docs > 0 || others > 0) {
+    el.classList.add('show');
+  } else {
+    el.classList.remove('show');
   }
 }
 
