@@ -1201,6 +1201,21 @@ function renderFiles(items) {
     fl.innerHTML = '<div class="empty"><div class="ei">📂</div><h3>Pasta vazia</h3><p>Arrasta ficheiros aqui ou clica em "Carregar"</p></div>';
     return;
   }
+  // Virtual Scrolling para pastas grandes (>100 itens)
+  destroyVirtualScroll();
+  if (items.length >= VS_THRESHOLD) {
+    const vsOk = initVirtualScroll(items, fl);
+    if (vsOk) {
+      // Adiciona event delegation ao vs-content dinâmico
+      const vsContent = document.getElementById('vs-content');
+      if (vsContent) {
+        fl._delegateHandler && fl.removeEventListener('click', fl._delegateHandler);
+        fl._delegateCTX && fl.removeEventListener('contextmenu', fl._delegateCTX);
+      }
+      return; // renderFiles tratado pelo VS
+    }
+  }
+
   if (S.view === 'grid') {
     fl.innerHTML = '<div class="fgrid">' + items.map(card).join('') + '</div>';
   } else {
@@ -2137,6 +2152,11 @@ async function loadTodayInHistory() {
       body
     });
 
+    if (r.status === 501 || r.status === 405) {
+      // Nextcloud StorageShare não suporta SEARCH — desactiva widget
+      el.style.display = 'none';
+      return;
+    }
     if (!r.ok) throw new Error('search failed');
     const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
     const photos = [];
@@ -2398,6 +2418,121 @@ async function batchWebDAV(items, operation, { batchSize = 4, delayMs = 200 } = 
     }
   }
   return results;
+}
+
+
+// ─── REQUEST COALESCING ──────────────────────────────────────────────────────
+// Se dois pedidos para o mesmo URL estiverem em curso simultaneamente,
+// partilham a mesma Promise em vez de abrir duas ligações
+const _pendingReqs = new Map();
+
+async function coalescedFetch(url, options = {}) {
+  const key = url + (options.method || 'GET');
+  if (_pendingReqs.has(key)) {
+    // Já há um pedido em curso — espera pelo mesmo resultado
+    return _pendingReqs.get(key);
+  }
+  const promise = fetch(url, options).finally(() => {
+    _pendingReqs.delete(key);
+  });
+  _pendingReqs.set(key, promise);
+  return promise;
+}
+
+
+// ─── VIRTUAL SCROLLING ───────────────────────────────────────────────────────
+// Para pastas com muitos itens, renderiza apenas o que está visível
+// Threshold: activa para >100 itens (abaixo disso DOM normal é mais simples)
+const VS_THRESHOLD = 100;
+const VS_ITEM_H_GRID = 180;  // altura aproximada de um card na grid
+const VS_ITEM_H_LIST = 48;   // altura de uma row na lista
+const VS_COLS_ESTIMATE = 4;  // colunas estimadas (ajusta no resize)
+const VS_BUFFER = 3;         // linhas extra acima e abaixo do viewport
+
+let _vsState = null; // estado do virtual scroll activo
+
+function initVirtualScroll(items, container) {
+  if (items.length < VS_THRESHOLD) return false; // não vale a pena
+
+  const isGrid = S.view === 'grid';
+  const itemH = isGrid ? VS_ITEM_H_GRID : VS_ITEM_H_LIST;
+  const cols = isGrid ? VS_COLS_ESTIMATE : 1;
+  const totalRows = Math.ceil(items.length / cols);
+  const totalH = totalRows * itemH;
+
+  // Wrapper com altura total para manter scrollbar correcta
+  container.innerHTML = `
+    <div id="vs-spacer-top" style="height:0px"></div>
+    <div id="vs-content"></div>
+    <div id="vs-spacer-bot" style="height:${totalH}px"></div>`;
+
+  _vsState = { items, cols, itemH, totalH, isGrid, container };
+  _vsRender();
+
+  // Listener de scroll no container pai
+  const main = document.getElementById('main');
+  if (main._vsHandler) main.removeEventListener('scroll', main._vsHandler);
+  main._vsHandler = _vsThrottle(_vsRender, 50);
+  main.addEventListener('scroll', main._vsHandler, { passive: true });
+
+  return true;
+}
+
+function _vsThrottle(fn, delay) {
+  let t;
+  return () => { clearTimeout(t); t = setTimeout(fn, delay); };
+}
+
+function _vsRender() {
+  if (!_vsState) return;
+  const { items, cols, itemH, isGrid, container } = _vsState;
+  const main = document.getElementById('main');
+  const scrollTop = main.scrollTop;
+  const viewH = main.clientHeight;
+
+  const startRow = Math.max(0, Math.floor(scrollTop / itemH) - VS_BUFFER);
+  const endRow = Math.min(
+    Math.ceil(items.length / cols),
+    Math.ceil((scrollTop + viewH) / itemH) + VS_BUFFER
+  );
+
+  const startIdx = startRow * cols;
+  const endIdx = Math.min(items.length, endRow * cols);
+
+  const topH = startRow * itemH;
+  const botH = Math.max(0, (_vsState.totalH - endRow * itemH));
+
+  document.getElementById('vs-spacer-top').style.height = topH + 'px';
+  document.getElementById('vs-spacer-bot').style.height = botH + 'px';
+
+  const visible = items.slice(startIdx, endIdx);
+  const content = document.getElementById('vs-content');
+
+  if (isGrid) {
+    content.innerHTML = '<div class="fgrid">' + visible.map(card).join('') + '</div>';
+  } else {
+    content.innerHTML = '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' +
+      visible.map(row).join('') + '</div>';
+  }
+
+  // Lazy load images no novo conteúdo
+  content.querySelectorAll('img[data-src]').forEach(img => _lazyObserver.observe(img));
+
+  // Video thumbnails
+  visible.filter(it => !it.isDir && isVid(it.name)).forEach(it => {
+    const id = 'vth-' + (it.fileid || btoa(it.path).replace(/[^a-z0-9]/gi,'').slice(0,8));
+    const el = document.getElementById(id);
+    if (el) generateVideoThumb(el, it.path);
+  });
+}
+
+function destroyVirtualScroll() {
+  _vsState = null;
+  const main = document.getElementById('main');
+  if (main._vsHandler) {
+    main.removeEventListener('scroll', main._vsHandler);
+    main._vsHandler = null;
+  }
 }
 
 const UPQ = {
@@ -3541,6 +3676,7 @@ async function execSearch(q) {
       headers: { 'Authorization': auth(), 'Content-Type': 'application/xml', 'Depth': 'infinity' },
       body
     });
+    if (r.status === 501 || r.status === 405) throw new Error('SEARCH not supported');
     if (!r.ok) throw new Error('SEARCH not supported');
     const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
     const results = [];
@@ -4019,6 +4155,7 @@ async function loadCalEvents() {
       </c:calendar-query>`;
       const href = cal.href.startsWith('http') ? cal.href : PROXY+(cal.href.startsWith('/nextcloud') ? cal.href : '/nextcloud'+cal.href);
       const r = await fetch(href, { method:'REPORT', headers:{'Authorization':auth(),'Depth':'1','Content-Type':'application/xml'}, body });
+      if (r.status === 501 || r.status === 405) throw new Error('REPORT not supported');
       if (!r.ok) continue;
       const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
       xml.querySelectorAll('response').forEach(resp => {
@@ -4963,6 +5100,8 @@ function webShareCurrentFile() {
 }
 
 Object.assign(globalThis, {
+  coalescedFetch, _pendingReqs,
+  initVirtualScroll, destroyVirtualScroll, _vsRender,
   Store, Logger, UndoStack, Recents,
   initOfflineDetection, batchWebDAV,
   showRecents,
