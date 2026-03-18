@@ -161,7 +161,8 @@
   --topbar-bg: rgba(250,248,243,0.92); --topbar-blur: blur(20px) saturate(140%);
   --topbar-border: rgba(26,18,8,.08); --sidebar-bg: rgba(244,240,230,0.94);
 }
-/* BASE STYLES
+
+   BASE STYLES
 ═══════════════════════════════════════ */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
 html, body { height:100%; }
@@ -1178,6 +1179,11 @@ body {
     </button>
   </nav>
 
+  <!-- SYNC INDICATOR -->
+  <div class="sync-dot" id="sync-dot">
+    <div class="sync-spin"></div>
+    <span id="sync-txt">A actualizar...</span>
+  </div>
 </div><!-- #app -->
 
 <!-- ═══ OVERLAYS ═══ -->
@@ -1278,7 +1284,7 @@ body {
     <div class="err-msg" id="prof-err"></div>
     <div class="mac" style="margin-top:8px">
       <button class="btn btn-s" onclick="window.hideM('profile')">Fechar</button>
-      <button class="btn btn-p" onclick="window.saveProfile()">💾 Guardar</button>
+      <button class="btn btn-p" onclick="window.window.saveProfile()">💾 Guardar</button>
     </div>
   </div>
 </div>

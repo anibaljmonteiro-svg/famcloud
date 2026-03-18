@@ -946,6 +946,25 @@ function updateTreeActive() {
 
 // ─── FILE LISTING ─────────────────────────────────────────────────────────────
 
+
+// ─── SYNC INDICATOR ──────────────────────────────────────────────────────────
+let _syncTimer = null;
+function syncStart(msg = 'A actualizar...') {
+  const el = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-txt');
+  if (!el) return;
+  if (txt) txt.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_syncTimer);
+}
+function syncDone() {
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => {
+    const el = document.getElementById('sync-dot');
+    if (el) el.classList.remove('show');
+  }, 800);
+}
+
 // ─── PAGE LOADER ─────────────────────────────────────────────────────────────
 function pageLoaderStart() {
   const el = document.getElementById('page-loader');
@@ -986,6 +1005,7 @@ async function loadFiles(p) {
   }
   S.path = p; clearSel(); updateBC(); updateTreeActive();
   document.getElementById('btn-back').style.display = p === '/' ? 'none' : 'flex';
+  syncStart('A carregar...');
   document.getElementById('fl').innerHTML = '<div class="loading"><div class="spin"></div> A carregar...</div>';
   // Cancela pedido anterior se ainda estiver em curso
   if (S.loadAbort) { S.loadAbort.abort(); }
@@ -1056,6 +1076,7 @@ async function loadFiles(p) {
 
 // Actualiza cache em background sem bloquear UI
 async function _refreshInBackground(p) {
+  syncStart('A actualizar...');
   try {
     const r = await fetch(dav(p), {
       method: 'PROPFIND',
@@ -1147,11 +1168,14 @@ function closeSB() {
 function renderFiles(items) {
   const fl = document.getElementById('fl');
   fl.style.opacity = '';
-  // Desactiva interacções durante render para evitar clicks acidentais
+  fl.style.userSelect = '';
+  // Bloqueia durante render, desbloqueia após 2 frames (DOM pronto)
   fl.style.pointerEvents = 'none';
-  // Reactiva após render (num requestAnimationFrame para garantir que o DOM está pronto)
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => { fl.style.pointerEvents = ''; });
+    requestAnimationFrame(() => {
+      fl.style.pointerEvents = '';
+      fl.style.userSelect = '';
+    });
   });
   // Remove listener anterior se existir
   if (fl._delegateHandler) fl.removeEventListener('click', fl._delegateHandler);
@@ -1250,20 +1274,24 @@ function renderFiles(items) {
     }
   };
 
+  let _lastScrollTime = 0;
+
   fl._delegateTouchEnd = (e) => {
     clearTimeout(_touchTimer);
-    // Se houve movimento, é scroll — não dispara acção
     if (_touchMoved) {
+      _lastScrollTime = Date.now(); // marca quando terminou o scroll
       _touchMoved = false;
       return;
     }
     _touchMoved = false;
   };
 
-  // Click só dispara se não foi scroll
+  // Click só dispara se não foi scroll recente (<400ms)
   fl._safeClick = (e) => {
-    // Em mobile, ignorar clicks que seguem um scroll
-    if (_touchMoved) { e.stopImmediatePropagation(); return; }
+    if (Date.now() - _lastScrollTime < 400) {
+      e.stopImmediatePropagation();
+      return;
+    }
     fl._delegateHandler(e);
   };
 
@@ -1744,7 +1772,7 @@ const _idb = (() => {
 })();
 
 // TTL do cache — 5 minutos
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
 
 
 
@@ -2632,12 +2660,8 @@ function updateFilesStatus(items) {
   el.innerHTML = parts.join('<span class="fs-sep">·</span>') +
     (parts.length ? '<span class="fs-sep">·</span>' : '') + totalSpan;
 
-  // Só mostra se há ficheiros (não só pastas)
-  if (imgs > 0 || vids > 0 || docs > 0 || others > 0) {
-    el.classList.add('show');
-  } else {
-    el.classList.remove('show');
-  }
+  // Mostra sempre que há itens
+  el.classList.add('show');
 }
 
 const UPQ = {
