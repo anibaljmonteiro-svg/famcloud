@@ -982,6 +982,8 @@ function pageLoaderDone() {
 }
 
 async function loadFiles(p) {
+  // Cancela qualquer refresh em background da pasta anterior
+  if (_bgAbort) { _bgAbort.abort(); _bgAbort = null; }
   pageLoaderStart();
   const fl = document.getElementById('fl');
 
@@ -1007,6 +1009,9 @@ async function loadFiles(p) {
   S.path = p; clearSel(); updateBC(); updateTreeActive();
   document.getElementById('btn-back').style.display = p === '/' ? 'none' : 'flex';
   syncStart('A carregar...');
+  // Reset da barra de estado ao mudar de pasta
+  const statusEl = document.getElementById('files-status');
+  if (statusEl) statusEl.classList.remove('show');
   document.getElementById('fl').innerHTML = '<div class="loading"><div class="spin"></div> A carregar...</div>';
   // Cancela pedido anterior se ainda estiver em curso
   if (S.loadAbort) { S.loadAbort.abort(); }
@@ -1076,15 +1081,22 @@ async function loadFiles(p) {
 }
 
 // Actualiza cache em background sem bloquear UI
+let _bgAbort = null; // Cancela refresh anterior ao navegar
+
 async function _refreshInBackground(p) {
+  // Cancela qualquer refresh anterior em curso
+  if (_bgAbort) { _bgAbort.abort(); }
+  _bgAbort = new AbortController();
+  const signal = _bgAbort.signal;
   syncStart('A actualizar...');
   try {
     const r = await fetch(dav(p), {
       method: 'PROPFIND',
       headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
-      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`,
+      signal
     });
-    if (!r.ok) return;
+    if (!r.ok || signal.aborted) return;
     const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
     let folders = [], files = [];
     xml.querySelectorAll('response').forEach(resp => {
@@ -1102,14 +1114,20 @@ async function _refreshInBackground(p) {
       if (isDir) folders.push(obj); else files.push(obj);
     });
     const fresh = [...sortItems(folders), ...sortItems(files)];
-    // Só re-renderiza se estiver na mesma pasta
-    if (S.path === p) {
+    // Só re-renderiza se ainda estiver na mesma pasta E não foi cancelado
+    if (S.path === p && !signal.aborted) {
       S.lastItems = fresh;
       renderFiles(fresh);
+      pageLoaderDone();
     }
-    _idb.set(p, fresh);
-    _idxAdd(fresh, p);
-  } catch(e) {}
+    if (!signal.aborted) {
+      _idb.set(p, fresh);
+      _idxAdd(fresh, p);
+    }
+    syncDone();
+  } catch(e) {
+    if (e.name !== 'AbortError') syncDone();
+  }
 }
 
 function sortItems(arr) {
@@ -2662,7 +2680,11 @@ function updateFilesStatus(items) {
     (parts.length ? '<span class="fs-sep">·</span>' : '') + totalSpan;
 
   // Mostra sempre que há itens
-  el.classList.add('show');
+  if (items.length > 0) {
+    el.classList.add('show');
+  } else {
+    el.classList.remove('show');
+  }
 }
 
 
