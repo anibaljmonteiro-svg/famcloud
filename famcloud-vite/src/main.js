@@ -1170,9 +1170,9 @@ async function _refreshInBackground(p) {
       fresh.some(i => !oldNames.has(i.name)) ||
       S.lastItems.some(i => !newNames.has(i.name));
 
+    // Nunca re-renderiza — só actualiza cache e índice
+    // Badge discreto se houve mudanças
     if (changed) {
-      // Guarda dados novos mas NÃO re-renderiza automaticamente
-      // Evita scroll a tremer e re-renders inesperados
       S._pendingRefresh = fresh;
       _showRefreshBadge();
     }
@@ -4414,7 +4414,7 @@ function installPWA() {
 window.addEventListener('appinstalled', () => { toast('FamCloud instalada! 🎉', 'ok'); });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('/famcloud/sw.js').catch(() => {}));
 }
 
 // ─── KEYBOARD ─────────────────────────────────────────────────────────────────
