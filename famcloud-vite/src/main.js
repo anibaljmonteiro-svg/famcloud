@@ -1031,6 +1031,7 @@ async function loadFiles(p) {
     S.lastItems = cached.items;
     renderFiles(cached.items);
     pageLoaderDone();
+    syncDone(cached.items.length);
     _idxAdd(cached.items, p);
     // Actualiza sempre em background — mostra dados frescos silenciosamente
     _refreshInBackground(p);
@@ -1110,8 +1111,10 @@ async function loadFiles(p) {
       toast(`⚠️ Esta pasta tem ${S.lastItems.length}+ itens. Podem não aparecer todos.`, 'err');
     }
     renderFiles(S.lastItems);
+    syncDone(S.lastItems.length);
   } catch(e) {
     pageLoaderDone(); // Garante que loader desaparece mesmo em erro
+    syncDone();
     if (e.name === 'AbortError') return; // Navegação cancelada — normal
     document.getElementById('fl').innerHTML = `<div class="empty"><div class="ei">⚠️</div><h3>Erro ao carregar</h3><p>${e.message}</p></div>`;
   }
@@ -1173,7 +1176,7 @@ async function _refreshInBackground(p) {
       S._pendingRefresh = fresh;
       _showRefreshBadge();
     }
-    syncDone();
+    syncDone(fresh.length);
   } catch(e) {
     if (e.name !== 'AbortError') syncDone();
   }
@@ -5615,7 +5618,7 @@ Object.assign(globalThis, {
   setAvatar,
   uploadAvatar,
   openProfile,
-  generateVideoThumb,
+  // generateVideoThumb disabled,
   folderIcon,
   saveProfile,
   setEmojiAvatar,
