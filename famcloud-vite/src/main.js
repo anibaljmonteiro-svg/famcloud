@@ -2244,16 +2244,34 @@ const IMG_MAX_PX = 2560;   // max dimension (2K)
 const IMG_QUALITY = 0.88;  // qualidade JPEG/WebP
 
 async function compressImage(file) {
-  // Só comprime imagens acima de 1MB e não GIF/SVG/WebP já comprimido
   const ext = file.name.split('.').pop().toLowerCase();
-  if (!['jpg','jpeg','png','heic','heif','bmp','tiff'].includes(ext)) return file;
-  if (file.size < 1024 * 1024) return file; // < 1MB — não vale a pena
+
+  // HEIC/HEIF — createImageBitmap não suporta nestes formatos na maioria dos browsers
+  // Envia o original sem comprimir (o Nextcloud converte no servidor)
+  if (['heic','heif'].includes(ext)) return file;
+
+  // Apenas estas extensões
+  if (!['jpg','jpeg','png','bmp','tiff','webp'].includes(ext)) return file;
+
+  // Ficheiros pequenos — não vale o processamento
+  if (file.size < 800 * 1024) return file; // < 800KB
 
   try {
-    const bitmap = await createImageBitmap(file);
-    const { width: w, height: h } = bitmap;
+    // Verifica suporte a OffscreenCanvas (não existe em iOS Safari)
+    const useOffscreen = typeof OffscreenCanvas !== 'undefined';
 
-    // Só redimensiona se for maior que o limite
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch(e) {
+      // createImageBitmap falhou (HEIC disfarçado, ficheiro corrompido, etc.)
+      return file;
+    }
+
+    const { width: w, height: h } = bitmap;
+    if (!w || !h) { bitmap.close(); return file; }
+
+    // Calcula dimensões — máximo 2K mas preserva aspect ratio
     let nw = w, nh = h;
     if (w > IMG_MAX_PX || h > IMG_MAX_PX) {
       const ratio = Math.min(IMG_MAX_PX / w, IMG_MAX_PX / h);
@@ -2261,25 +2279,44 @@ async function compressImage(file) {
       nh = Math.round(h * ratio);
     }
 
-    const canvas = new OffscreenCanvas(nw, nh);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0, nw, nh);
-    bitmap.close();
+    let blob;
+    if (useOffscreen) {
+      // OffscreenCanvas — mais rápido, não bloqueia UI
+      const canvas = new OffscreenCanvas(nw, nh);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0, nw, nh);
+      bitmap.close();
+      // Tenta WebP primeiro (30% menor que JPEG), fallback para JPEG
+      const supportsWebP = useOffscreen; // OffscreenCanvas suporta WebP
+      blob = await canvas.convertToBlob({
+        type: supportsWebP ? 'image/webp' : 'image/jpeg',
+        quality: IMG_QUALITY
+      });
+      // Se WebP for maior (raro), tenta JPEG
+      if (supportsWebP && blob.size >= file.size * 0.9) {
+        blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: IMG_QUALITY });
+      }
+    } else {
+      // Fallback: canvas normal (iOS Safari)
+      const canvas = document.createElement('canvas');
+      canvas.width = nw; canvas.height = nh;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0, nw, nh);
+      bitmap.close();
+      blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', IMG_QUALITY));
+    }
 
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: IMG_QUALITY });
+    if (!blob || blob.size >= file.size) return file; // sem ganho
 
-    // Só usa versão comprimida se for menor
-    if (blob.size >= file.size) return file;
+    const isWebP = blob.type === 'image/webp';
+    const newName = file.name.replace(/\.[^.]+$/, isWebP ? '.webp' : '.jpg');
+    return new File([blob], newName, {
+      type: blob.type,
+      lastModified: file.lastModified
+    });
 
-    const compressed = new File([blob],
-      file.name.replace(/\.[^.]+$/, '.jpg'),
-      { type: 'image/jpeg', lastModified: file.lastModified }
-    );
-
-    const saving = Math.round((1 - blob.size / file.size) * 100);
-    return compressed;
   } catch(e) {
-    return file; // fallback — envia original se compressão falhar
+    return file;
   }
 }
 
@@ -2926,7 +2963,8 @@ const UPQ = {
         fileToUpload = await compressImage(f);
         if (fileToUpload !== f) {
           const saved = Math.round((1 - fileToUpload.size/f.size)*100);
-          document.getElementById('uprog-speed').textContent = `📦 -${saved}% (${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)})`;
+          const fmt = fileToUpload.name.endsWith('.webp') ? 'WebP' : 'JPEG';
+          document.getElementById('uprog-speed').textContent = `🗜️ ${fmt} -${saved}% · ${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)}`;
         }
       }
       const f2 = fileToUpload; // usa ficheiro comprimido daqui para a frente
