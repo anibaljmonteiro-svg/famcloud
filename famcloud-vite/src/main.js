@@ -3577,8 +3577,9 @@ function ssShow() {
     if (swReady) {
       // Envia auth ao SW
       navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
-      const davPath = dav(it.path).replace(PROXY + '/nextcloud', '');
-      const streamUrl = `/famcloud/stream?path=${encodeURIComponent(davPath)}&proxy=${encodeURIComponent(PROXY + '/nextcloud')}`;
+      // Usar S.server em vez de PROXY (minificado pelo Vite)
+      const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + it.path;
+      const streamUrl = `/famcloud/stream?path=${encodeURIComponent(davPath)}&proxy=${encodeURIComponent(S.server + '/nextcloud')}`;
       vid.src = streamUrl;
       vid.load();
       vid.oncanplay = () => {
@@ -3854,7 +3855,9 @@ function openMedia(p, nm) {
     // Actualiza auth no SW antes de abrir
     navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
     // URL especial que o SW intercepta
-    const streamUrl = `/famcloud/stream?path=${encodeURIComponent(dav(p).replace(PROXY + '/nextcloud', ''))}&proxy=${encodeURIComponent(PROXY + '/nextcloud')}`;
+    // Usar S.server em vez de PROXY (minificado pelo Vite)
+    const davPathM = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+    const streamUrl = `/famcloud/stream?path=${encodeURIComponent(davPathM)}&proxy=${encodeURIComponent(S.server + '/nextcloud')}`;
     mediaEl.src = streamUrl;
     mediaEl.load();
     loadingEl.style.display = 'none';
