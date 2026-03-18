@@ -958,20 +958,50 @@ function updateTreeActive() {
 
 // ─── SYNC INDICATOR ──────────────────────────────────────────────────────────
 let _syncTimer = null;
+let _syncSafetyTimer = null;
 function syncStart(msg = 'A actualizar...') {
+  S._isSyncing = true;
   const el = document.getElementById('sync-dot');
   const txt = document.getElementById('sync-txt');
   if (!el) return;
   if (txt) txt.textContent = msg;
   el.classList.add('show');
   clearTimeout(_syncTimer);
+  clearTimeout(_syncSafetyTimer);
+  // Timeout de segurança máximo
+  _syncSafetyTimer = setTimeout(() => syncDone(), 15000);
+  // Actualiza botão slideshow
+  const ssBtn = document.getElementById('btn-slideshow');
+  if (ssBtn && !ssBtn.disabled) {
+    ssBtn.disabled = true;
+    ssBtn.style.opacity = '0.5';
+    ssBtn.title = 'A carregar pasta...';
+  }
 }
-function syncDone() {
+function syncDone(count) {
+  S._isSyncing = false;
   clearTimeout(_syncTimer);
+  clearTimeout(_syncSafetyTimer);
+  const el = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-txt');
+  if (el && txt) {
+    // Mostra confirmação breve antes de desaparecer
+    if (count !== undefined) {
+      txt.textContent = `✅ ${count} item${count !== 1 ? 's' : ''} prontos`;
+    } else {
+      txt.textContent = '✅ Actualizado';
+    }
+  }
   _syncTimer = setTimeout(() => {
-    const el = document.getElementById('sync-dot');
     if (el) el.classList.remove('show');
-  }, 800);
+    // Reactiva botão slideshow
+    const ssBtn = document.getElementById('btn-slideshow');
+    if (ssBtn && ssBtn.disabled) {
+      ssBtn.disabled = false;
+      ssBtn.style.opacity = '';
+      ssBtn.title = 'Slideshow das fotos desta pasta';
+    }
+  }, 1500);
 }
 
 // ─── PAGE LOADER ─────────────────────────────────────────────────────────────
@@ -1428,7 +1458,19 @@ function renderFiles(items) {
   // Mostra botão slideshow se há imagens
   const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
-  if (ssBtn) ssBtn.style.display = hasImgs ? '' : 'none';
+  if (ssBtn) {
+    ssBtn.style.display = hasImgs ? '' : 'none';
+    // Desactiva enquanto está a actualizar em background
+    if (hasImgs && S._isSyncing) {
+      ssBtn.disabled = true;
+      ssBtn.title = 'A aguardar actualização completa...';
+      ssBtn.style.opacity = '0.5';
+    } else if (hasImgs) {
+      ssBtn.disabled = false;
+      ssBtn.title = 'Slideshow das fotos desta pasta';
+      ssBtn.style.opacity = '';
+    }
+  }
   // Actualiza barra de estado com contagens
   updateFilesStatus(items);
 }
@@ -2889,8 +2931,12 @@ const UPQ = {
   _render() {
     const prog = document.getElementById('uprog');
     const queue = document.getElementById('uprog-queue');
-    const activeJobs = this.jobs.filter(j => j.status !== 'ok' || this.jobs.length <= 5);
-    if (activeJobs.length === 0) { prog.style.display='none'; return; }
+    const activeJobs = this.jobs.filter(j => j.status === 'wait' || j.status === 'run');
+    const recentDone = this.jobs.filter(j => j.status === 'ok' || j.status === 'err');
+    // Esconde se não há jobs activos E todos os concluídos têm mais de 4s
+    if (activeJobs.length === 0 && recentDone.length === 0) { 
+      prog.style.display='none'; return; 
+    }
     prog.style.display = 'block';
     const running = this.jobs.filter(j=>j.status==='run');
     const waiting = this.jobs.filter(j=>j.status==='wait');
@@ -2919,14 +2965,20 @@ const UPQ = {
       this._render();
     }
     this._running = false;
-    // Auto-hide after 4s if all done
-    setTimeout(() => {
-      if (this.jobs.every(j=>j.status==='ok'||j.status==='err')) {
-        document.getElementById('uprog').style.display='none';
-        document.getElementById('uprog-bar').style.width='0%';
-        this.jobs = [];
-      }
-    }, 4000);
+    // Auto-hide após 3s sempre que termina
+    const prog = document.getElementById('uprog');
+    if (prog) {
+      prog.style.transition = 'opacity .5s';
+      setTimeout(() => {
+        prog.style.opacity = '0';
+        setTimeout(() => {
+          prog.style.display = 'none';
+          prog.style.opacity = '1';
+          document.getElementById('uprog-bar').style.width = '0%';
+          this.jobs = [];
+        }, 500);
+      }, 3000);
+    }
   },
   async _execJob(job) {
     S.uploadCancel = false;
@@ -3502,70 +3554,57 @@ function ssShow() {
   prog.style.transition = 'none'; prog.style.width = '0%';
 
   if (SS.isVideo) {
-    // Mostrar vídeo, esconder imagem
     img.style.display = 'none';
     vid.style.display = 'block';
     vid.style.opacity = '0';
     vid.pause();
     vid.src = '';
-    // Sem interval para vídeos — avança quando termina
     if (SS.interval) { clearInterval(SS.interval); SS.interval = null; }
-    // Mostrar indicador de loading
+
+    // Loader discreto
     let ssLoader = document.getElementById('ss-loader');
     if (!ssLoader) {
       ssLoader = document.createElement('div');
       ssLoader.id = 'ss-loader';
       ssLoader.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:12px;color:rgba(255,255,255,.8);font-size:13px;pointer-events:none;';
-      ssLoader.innerHTML = '<div class="spin" style="width:36px;height:36px;border-width:3px;border-color:rgba(255,255,255,.3);border-top-color:#fff"></div><div id="ss-loader-txt">⬇️ A carregar vídeo...</div>';
+      ssLoader.innerHTML = '<div class="spin" style="width:36px;height:36px;border-width:3px;border-color:rgba(255,255,255,.3);border-top-color:#fff"></div><div id="ss-loader-txt">▶️ A iniciar vídeo...</div>';
       document.getElementById('slideshow-ov').appendChild(ssLoader);
     }
     ssLoader.style.display = 'flex';
-    const loaderTxt = document.getElementById('ss-loader-txt');
-    // Carregar vídeo com auth via proxy
-    // Cancela download anterior se existir
-    if (SS.fetchAbort) { SS.fetchAbort.abort(); }
-    SS.fetchAbort = new AbortController();
-    fetch(dav(it.path), {
-      headers: { 'Authorization': auth() },
-      signal: SS.fetchAbort.signal
-    }).then(r => {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const total = parseInt(r.headers.get('content-length') || '0');
-      // Streaming progress
-      const reader = r.body.getReader();
-      const chunks = [];
-      let received = 0;
-      const pump = () => reader.read().then(({ done, value }) => {
-        if (done) return chunks;
-        chunks.push(value);
-        received += value.length;
-        if (total && loaderTxt) {
-          const pct = Math.round(received / total * 100);
-          loaderTxt.textContent = `⬇️ ${pct}% — ${fmtSz(received)}`;
-        }
-        return pump();
-      });
-      return pump().then(() => new Blob(chunks));
-    }).then(blob => {
-      const blobUrl = URL.createObjectURL(blob);
-      vid.src = blobUrl;
-      vid.style.opacity = '1';
-      if (ssLoader) ssLoader.style.display = 'none';
-      vid.play().catch(() => {});
-      vid.onended = () => {
-        URL.revokeObjectURL(blobUrl);
-        if (!SS.paused) ssNext();
-      };
-      vid.onloadedmetadata = () => {
-        const dur = vid.duration * 1000 || SS.speed;
+
+    // ── STREAMING REAL via Service Worker ────────────────────
+    // Sem download completo — reproduz imediatamente como YouTube
+    // O SW intercepta /famcloud/stream?path=... e adiciona auth
+    const swReady = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+    if (swReady) {
+      // Envia auth ao SW
+      navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
+      const davPath = dav(it.path).replace(PROXY + '/nextcloud', '');
+      const streamUrl = `/famcloud/stream?path=${encodeURIComponent(davPath)}&proxy=${encodeURIComponent(PROXY + '/nextcloud')}`;
+      vid.src = streamUrl;
+      vid.load();
+      vid.oncanplay = () => {
+        vid.style.opacity = '1';
+        ssLoader.style.display = 'none';
+        vid.play().catch(() => {});
+        // Barra de progresso baseada na duração real
+        const dur = vid.duration * 1000 || 60000;
         prog.style.transition = `width ${dur}ms linear`;
         prog.style.width = '100%';
       };
-    }).catch(e => {
-      if (ssLoader) ssLoader.style.display = 'none';
-      if (loaderTxt) loaderTxt.textContent = '❌ Erro: ' + e.message;
-      setTimeout(() => ssNext(), 2000);
-    });
+      vid.onended = () => {
+        vid.src = '';
+        if (!SS.paused) ssNext();
+      };
+      vid.onerror = () => {
+        // Fallback para download se SW falhar
+        ssLoader.querySelector('#ss-loader-txt').textContent = '⬇️ A descarregar...';
+        _ssVideoFallback(it, vid, prog, ssLoader);
+      };
+    } else {
+      // Sem SW — download progressivo (fallback)
+      _ssVideoFallback(it, vid, prog, ssLoader);
+    }
   } else {
     // Mostrar imagem, esconder vídeo
     vid.style.display = 'none';
@@ -3585,6 +3624,51 @@ function ssShow() {
     // Reactiva interval para fotos
     ssPlay();
   }
+}
+
+
+// Fallback de vídeo para slideshow (sem Service Worker)
+function _ssVideoFallback(it, vid, prog, ssLoader) {
+  const loaderTxt = ssLoader.querySelector('#ss-loader-txt') || ssLoader.querySelector('div:last-child');
+  if (SS.fetchAbort) { SS.fetchAbort.abort(); }
+  SS.fetchAbort = new AbortController();
+  fetch(dav(it.path), {
+    headers: { 'Authorization': auth() },
+    signal: SS.fetchAbort.signal
+  }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const total = parseInt(r.headers.get('content-length') || '0');
+    const reader = r.body.getReader();
+    const chunks = [];
+    let received = 0;
+    const pump = () => reader.read().then(({ done, value }) => {
+      if (done) return chunks;
+      chunks.push(value);
+      received += value.length;
+      if (total && loaderTxt) {
+        const pct = Math.round(received / total * 100);
+        loaderTxt.textContent = `⬇️ ${pct}% — ${fmtSz(received)} / ${fmtSz(total)}`;
+      }
+      return pump();
+    });
+    return pump().then(() => new Blob(chunks));
+  }).then(blob => {
+    const blobUrl = URL.createObjectURL(blob);
+    vid.src = blobUrl;
+    vid.style.opacity = '1';
+    if (ssLoader) ssLoader.style.display = 'none';
+    vid.play().catch(() => {});
+    vid.onended = () => { URL.revokeObjectURL(blobUrl); if (!SS.paused) ssNext(); };
+    vid.onloadedmetadata = () => {
+      const dur = vid.duration * 1000 || SS.speed;
+      prog.style.transition = `width ${dur}ms linear`;
+      prog.style.width = '100%';
+    };
+  }).catch(e => {
+    if (e.name === 'AbortError') return;
+    if (ssLoader) ssLoader.style.display = 'none';
+    setTimeout(() => ssNext(), 2000);
+  });
 }
 
 function ssPlay() {
