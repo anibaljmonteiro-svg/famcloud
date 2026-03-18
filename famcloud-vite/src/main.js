@@ -2665,6 +2665,85 @@ function updateFilesStatus(items) {
   el.classList.add('show');
 }
 
+
+// ─── STORAGE STATS ───────────────────────────────────────────────────────────
+async function openStorageStats() {
+  showM('storage-stats');
+  const content = document.getElementById('storage-stats-content');
+  content.innerHTML = '<div class="loading"><div class="spin"></div> A calcular...</div>';
+
+  try {
+    // Lê pastas de topo
+    const r = await fetch(dav('/'), {
+      method: 'PROPFIND',
+      headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:getcontentlength/><d:resourcetype/><d:quota-used-bytes/></d:prop></d:propfind>`
+    });
+    const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    const responses = [...xml.querySelectorAll('response')].slice(1); // remove raiz
+
+    const folders = responses.map(resp => {
+      const name = resp.querySelector('displayname')?.textContent || '';
+      const isDir = resp.querySelector('resourcetype collection') !== null;
+      const size = parseInt(resp.querySelector('getcontentlength')?.textContent || '0') || 0;
+      return { name, isDir, size };
+    }).filter(f => f.isDir && f.name);
+
+    if (!folders.length) {
+      content.innerHTML = '<p style="color:var(--text2);text-align:center;padding:20px">Sem pastas</p>';
+      return;
+    }
+
+    // Ordena por nome
+    folders.sort((a,b) => a.name.localeCompare(b.name));
+
+    // Quota total
+    const quotaResp = await fetch(PROXY + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + '/', {
+      method: 'PROPFIND',
+      headers: { 'Authorization': auth(), 'Depth': '0', 'Content-Type': 'application/xml' },
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:quota-available-bytes/><d:quota-used-bytes/></d:prop></d:propfind>`
+    });
+    const quotaXml = new DOMParser().parseFromString(await quotaResp.text(), 'text/xml');
+    const used = parseInt(quotaXml.querySelector('quota-used-bytes')?.textContent || '0');
+    const avail = parseInt(quotaXml.querySelector('quota-available-bytes')?.textContent || '0');
+    const total = used + avail;
+
+    let html = '';
+    if (total > 0) {
+      const pct = Math.round(used/total*100);
+      html += `<div style="margin-bottom:16px;padding:14px;background:var(--bg2);border-radius:12px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px">
+          <span>💾 Espaço usado</span>
+          <span><b style="color:var(--primary)">${fmtSz(used)}</b> de ${fmtSz(total)}</span>
+        </div>
+        <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--gradient);border-radius:4px;transition:width .6s"></div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--text3);margin-top:4px">${fmtSz(avail)} livres</div>
+      </div>`;
+    }
+
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:8px">Pastas de topo</div>`;
+    for (const f of folders) {
+      const icon = f.name.match(/foto|photo|imag/i) ? '🖼️' :
+                   f.name.match(/video|vid/i) ? '🎬' :
+                   f.name.match(/doc|pdf/i) ? '📄' :
+                   f.name.match(/music|musica|áudio/i) ? '🎵' : '📁';
+      html += `<div onclick="window.openDir('/${f.name}/');window.hideM('storage-stats')"
+        style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background .15s;margin-bottom:4px"
+        onmouseenter="this.style.background='var(--bg2)'" onmouseleave="this.style.background=''">
+        <span style="font-size:20px">${icon}</span>
+        <span style="flex:1;font-size:13px;font-weight:500;color:var(--text)">${f.name}</span>
+        <span style="font-size:12px;color:var(--text3)">›</span>
+      </div>`;
+    }
+
+    content.innerHTML = html;
+  } catch(e) {
+    content.innerHTML = `<p style="color:var(--red);text-align:center;padding:20px">Erro: ${e.message}</p>`;
+  }
+}
+
 const UPQ = {
   jobs: [],   // {id, name, total, files, destPath, status:'wait'|'run'|'ok'|'err', done:0, errors:0}
   _running: false,
@@ -3526,7 +3605,6 @@ function closePdf() { document.getElementById('pdf-ov').classList.remove('show')
 
 // ─── MEDIA (video/audio) ──────────────────────────────────────────────────────
 function openMedia(p, nm) {
-  // Regista nos recentes
   const item = S.lastItems?.find(it => it.path === p);
   if (item) Recents.add(item);
   const ext = ex(nm);
@@ -3537,58 +3615,104 @@ function openMedia(p, nm) {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
 
   const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'color:white;font-size:14px;font-weight:500;max-width:80vw;text-align:center';
+  titleEl.style.cssText = 'color:rgba(255,255,255,.8);font-size:13px;font-weight:500;max-width:80vw;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
   titleEl.textContent = nm;
 
-  // Cria o elemento de media
   const mediaEl = document.createElement(tag);
   mediaEl.controls = true;
   mediaEl.autoplay = true;
   mediaEl.preload = 'metadata';
+  mediaEl.playsInline = true; // iOS
   if (isVideo) {
-    mediaEl.style.cssText = 'max-width:90vw;max-height:72vh;border-radius:10px;';
+    mediaEl.style.cssText = 'max-width:96vw;max-height:76vh;border-radius:8px;background:#000;';
   } else {
     mediaEl.style.cssText = 'width:90vw;margin-top:10px;';
   }
 
-  // Usa MediaSource + fetch com Authorization para streaming real
-  // Suporta seek, pause, etc.
-  const proxyUrl = dav(p);
+  // ── STREAMING REAL VIA SERVICE WORKER ────────────────────────
+  // O SW intercepta /famcloud/stream?path=... e adiciona auth header
+  // O browser faz Range requests nativamente → seek instantâneo
+  // Sem download completo — vídeo de 10GB começa em 2 segundos
+  const swAvailable = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
   
-  // Tenta abrir via fetch streaming
-  (async () => {
-    try {
-      const r = await fetch(proxyUrl, { headers: { 'Authorization': auth() } });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const blob = await r.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      mediaEl.src = blobUrl;
-      mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
-      loadingEl.style.display = 'none';
-    } catch(e) {
-      loadingEl.textContent = '❌ ' + e.message;
-    }
-  })();
+  if (swAvailable && isVideo) {
+    // Actualiza auth no SW antes de abrir
+    navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
+    // URL especial que o SW intercepta
+    const streamUrl = `/famcloud/stream?path=${encodeURIComponent(dav(p).replace(PROXY + '/nextcloud', ''))}&proxy=${encodeURIComponent(PROXY + '/nextcloud')}`;
+    mediaEl.src = streamUrl;
+    mediaEl.load();
+    loadingEl.style.display = 'none';
+  } else {
+    // Fallback: download progressivo com progresso
+    loadingEl.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div class="spin" style="border-color:rgba(255,255,255,.3);border-top-color:#fff;width:28px;height:28px"></div><span id="media-load-txt">A carregar...</span></div>';
+    
+    (async () => {
+      try {
+        const r = await fetch(dav(p), { headers: { 'Authorization': auth() } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        
+        const total = parseInt(r.headers.get('content-length') || '0');
+        const reader = r.body.getReader();
+        const chunks = [];
+        let received = 0;
+        const txt = document.getElementById('media-load-txt');
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (total && txt) txt.textContent = `${Math.round(received/total*100)}% — ${fmtSz(received)} / ${fmtSz(total)}`;
+        }
+        
+        const blob = new Blob(chunks);
+        const blobUrl = URL.createObjectURL(blob);
+        mediaEl.src = blobUrl;
+        mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+        loadingEl.style.display = 'none';
+      } catch(e) {
+        loadingEl.innerHTML = '❌ ' + e.message;
+      }
+    })();
+  }
 
   const loadingEl = document.createElement('div');
-  loadingEl.style.cssText = 'color:rgba(255,255,255,.6);font-size:13px;text-align:center';
-  loadingEl.textContent = '⏳ A carregar vídeo...';
+  loadingEl.style.cssText = 'color:rgba(255,255,255,.7);font-size:13px;text-align:center;min-height:40px;display:flex;align-items:center;justify-content:center';
+  loadingEl.textContent = isVideo && swAvailable ? '' : '⏳ A carregar...';
+
+  // Botões de controlo
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:center';
+
+  const dlBtn = document.createElement('button');
+  dlBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer';
+  dlBtn.textContent = '⬇️ Download';
+  dlBtn.onclick = () => dlF(p, nm);
 
   const closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'padding:8px 20px;background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;color:white;font-family:var(--font);font-size:13px;cursor:pointer;margin-top:8px';
+  closeBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer';
   closeBtn.textContent = '✕ Fechar';
   closeBtn.onclick = () => {
     mediaEl.pause();
-    if (mediaEl.src && mediaEl.src.startsWith('blob:')) URL.revokeObjectURL(mediaEl.src);
+    if (mediaEl.src?.startsWith('blob:')) URL.revokeObjectURL(mediaEl.src);
+    mediaEl.src = '';
     overlay.remove();
   };
+
+  btns.appendChild(dlBtn);
+  btns.appendChild(closeBtn);
 
   overlay.appendChild(titleEl);
   overlay.appendChild(mediaEl);
   overlay.appendChild(loadingEl);
-  overlay.appendChild(closeBtn);
+  overlay.appendChild(btns);
   overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
   document.body.appendChild(overlay);
+
+  // Fecha com Escape
+  const escHandler = (e) => { if (e.key === 'Escape') { closeBtn.click(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
 }
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────

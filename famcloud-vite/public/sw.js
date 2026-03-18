@@ -1,25 +1,25 @@
 /**
- * FamCloud Service Worker v4.0
+ * FamCloud Service Worker v5.0
  * 
- * Estratégia de cache inspirada no Dropbox/Google Photos:
- * 1. Assets Vite (JS/CSS com hash) — cache permanente
- * 2. HTML — network-first com fallback offline
- * 3. Thumbnails/previews — cache 30 dias no SW
- * 4. Background sync — actualiza cache quando online
+ * GRANDE MELHORIA: Video Streaming via SW Proxy
+ * O SW intercepta pedidos de vídeo/áudio e adiciona o Authorization header
+ * O browser faz Range requests nativamente → seek instantâneo, sem download completo
+ * 
+ * Sem isto: vídeo de 2GB = esperar 20 minutos
+ * Com isto: vídeo de 2GB = reproduz em 2 segundos, seek em qualquer posição
  */
 
-const SW_VERSION = 'fc-v24';
-const CACHE_STATIC = 'fc-static-v24';
-const CACHE_THUMBS = 'fc-thumbs-v24';
-const CACHE_HTML   = 'fc-html-v24';
+const SW_VERSION = 'fc-v25';
+const CACHE_STATIC = 'fc-static-v25';
+const CACHE_THUMBS = 'fc-thumbs-v25';
+const CACHE_HTML   = 'fc-html-v25';
 
-// Assets críticos para offline
 const PRECACHE = [
   '/famcloud/',
   '/famcloud/index.html',
 ];
 
-// ── INSTALL — precache crítico ───────────────────────────────────────────────
+// ── INSTALL ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE_HTML)
@@ -28,7 +28,7 @@ self.addEventListener('install', e => {
   );
 });
 
-// ── ACTIVATE — limpa caches antigas ─────────────────────────────────────────
+// ── ACTIVATE ─────────────────────────────────────────────────────────────────
 self.addEventListener('activate', e => {
   const keep = new Set([SW_VERSION, CACHE_STATIC, CACHE_THUMBS, CACHE_HTML]);
   e.waitUntil(
@@ -36,6 +36,15 @@ self.addEventListener('activate', e => {
       .then(keys => Promise.all(keys.filter(k => !keep.has(k)).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+// ── MENSAGENS DA APP → SW ────────────────────────────────────────────────────
+// A app envia as credenciais ao SW para ele poder fazer pedidos autenticados
+let _auth = null;
+self.addEventListener('message', e => {
+  if (e.data?.type === 'SET_AUTH') {
+    _auth = e.data.auth; // "Basic base64..."
+  }
 });
 
 // ── FETCH ────────────────────────────────────────────────────────────────────
@@ -50,75 +59,99 @@ self.addEventListener('fetch', e => {
 
   if (e.request.method !== 'GET') return;
 
-  // 1. Proxy/Nextcloud — nunca interceptar dados
-  if (url.hostname.includes('workers.dev') ||
-      url.hostname.includes('your-storageshare.de')) {
-    return; // passa directo
-  }
-
-  // 2. Thumbnails e previews — cache agressivo 30 dias
-  if (url.pathname.includes('/core/preview') ||
-      url.pathname.includes('/thumbnail') ||
-      url.searchParams.has('fileId')) {
-    e.respondWith(cacheFirst(e.request, CACHE_THUMBS, 30 * 24 * 60 * 60));
+  // ══════════════════════════════════════════════════════════════
+  // VIDEO/AUDIO STREAMING — interceta e adiciona auth header
+  // URL especial: /famcloud/stream?path=/remote.php/dav/files/...
+  // ══════════════════════════════════════════════════════════════
+  if (url.pathname === '/famcloud/stream' && url.searchParams.has('path')) {
+    e.respondWith(handleStream(e.request, url));
     return;
   }
 
-  // 3. Assets Vite (com hash no nome — imutáveis)
+  // Assets estáticos Vite
   if (url.pathname.includes('/assets/') ||
       url.pathname.match(/\.(js|css|woff2?|ttf|eot|png|ico|svg)$/)) {
-    e.respondWith(cacheFirst(e.request, CACHE_STATIC, 365 * 24 * 60 * 60));
+    e.respondWith(cacheFirst(e.request, CACHE_STATIC));
     return;
   }
 
-  // 4. HTML — stale-while-revalidate
+  // Thumbnails — cache 30 dias
+  if (url.pathname.includes('/core/preview') || url.searchParams.has('fileId')) {
+    e.respondWith(cacheFirst(e.request, CACHE_THUMBS));
+    return;
+  }
+
+  // HTML — stale-while-revalidate
   if (url.pathname.endsWith('/') || url.pathname.endsWith('.html')) {
     e.respondWith(staleWhileRevalidate(e.request, CACHE_HTML));
     return;
   }
 });
 
-// ── CACHE STRATEGIES ─────────────────────────────────────────────────────────
+// ── VIDEO STREAMING HANDLER ───────────────────────────────────────────────────
+async function handleStream(request, url) {
+  const targetPath = url.searchParams.get('path');
+  const proxyBase = url.searchParams.get('proxy') || 'https://famcloud.famcloud.workers.dev/nextcloud';
+  const targetUrl = proxyBase + targetPath;
 
-// Cache-first: serve do cache, actualiza em background
-async function cacheFirst(request, cacheName, maxAgeSeconds) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  
-  if (cached) {
-    const dateHeader = cached.headers.get('date');
-    if (dateHeader) {
-      const age = (Date.now() - new Date(dateHeader).getTime()) / 1000;
-      if (age < maxAgeSeconds) return cached;
-    } else {
-      return cached; // sem date header, serve na mesma
-    }
+  // Usa as credenciais guardadas pelo SW
+  const authHeader = _auth || request.headers.get('X-FC-Auth');
+  if (!authHeader) {
+    return new Response('Auth required', { status: 401 });
+  }
+
+  // Copia headers do pedido original (incluindo Range para seek)
+  const headers = new Headers();
+  headers.set('Authorization', authHeader);
+
+  // Range header — essencial para seek no vídeo
+  const rangeHeader = request.headers.get('Range');
+  if (rangeHeader) {
+    headers.set('Range', rangeHeader);
   }
 
   try {
-    const fresh = await fetch(request);
-    if (fresh && fresh.status === 200) {
-      cache.put(request, fresh.clone());
-    }
-    return fresh;
+    const response = await fetch(targetUrl, {
+      headers,
+      method: 'GET',
+    });
+
+    // Passa a resposta tal qual (com Content-Range, Accept-Ranges, etc.)
+    const respHeaders = new Headers(response.headers);
+    // CORS para o player de vídeo
+    respHeaders.set('Access-Control-Allow-Origin', '*');
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: respHeaders,
+    });
   } catch(e) {
-    return cached || new Response('Offline', { status: 503 });
+    return new Response('Stream error: ' + e.message, { status: 502 });
   }
 }
 
-// Stale-while-revalidate: serve cache imediatamente, actualiza em background
+// ── CACHE STRATEGIES ─────────────────────────────────────────────────────────
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const fresh = await fetch(request);
+    if (fresh && fresh.status === 200) cache.put(request, fresh.clone());
+    return fresh;
+  } catch(e) {
+    return new Response('Offline', { status: 503 });
+  }
+}
+
 async function staleWhileRevalidate(request, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-
-  // Actualiza em background
   const networkPromise = fetch(request).then(fresh => {
-    if (fresh && fresh.status === 200) {
-      cache.put(request, fresh.clone());
-    }
+    if (fresh && fresh.status === 200) cache.put(request, fresh.clone());
     return fresh;
   }).catch(() => null);
-
   return cached || await networkPromise || new Response('Offline', { status: 503 });
 }
 

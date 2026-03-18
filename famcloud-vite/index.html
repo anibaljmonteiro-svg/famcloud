@@ -981,6 +981,7 @@ body {
           <button class="udrop-item" onclick="window.openActivity();window.closeDrop()"><span class="di">📋</span>Actividade recente</button>
           <button class="udrop-item" onclick="window.openTagFilter();window.closeDrop()"><span class="di">🏷️</span>Filtrar por tags</button>
           <button class="udrop-item" onclick="window.openQuota();window.closeDrop()"><span class="di">💾</span>Quota por utilizador</button>
+          <button class="udrop-item" onclick="window.openStorageStats();window.closeDrop()"><span class="di">📊</span>Armazenamento & pastas</button>
           <div class="udrop-sep"></div>
           <!-- THEME QUICK SWITCHER -->
           <div style="padding:6px 16px 2px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Tema</div>
@@ -1389,6 +1390,15 @@ body {
     <div class="mh">💾 Quota por utilizador</div>
     <div id="quota-list"><div class="loading"><div class="spin"></div></div></div>
     <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('quota')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- STORAGE STATS -->
+<div class="mov" id="storage-stats-modal">
+  <div class="modal">
+    <div class="mh">📊 Armazenamento</div>
+    <div id="storage-stats-content"><div class="loading"><div class="spin"></div></div></div>
+    <div class="mac" style="margin-top:16px"><button class="btn btn-s" onclick="window.hideM('storage-stats')">Fechar</button></div>
   </div>
 </div>
 
