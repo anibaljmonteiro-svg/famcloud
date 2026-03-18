@@ -338,8 +338,9 @@ body {
 
 /* TREE ITEMS */
 .ti {
-  display:flex; align-items:center; gap:6px; padding:8px 12px; cursor:pointer;
+  display:flex; align-items:center; gap:6px; padding:10px 12px; cursor:pointer;
   font-size:13px; transition:background .15s; user-select:none; position:relative;
+  min-height:44px; touch-action:manipulation; -webkit-tap-highlight-color:transparent;
 }
 .ti:hover { background:var(--bg2); }
 .ti.active { background:var(--bg2); color:var(--primary); font-weight:500; }

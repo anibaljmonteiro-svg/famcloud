@@ -1346,7 +1346,8 @@ function renderFiles(items) {
   let _touchStartX = 0;
   let _touchStartY = 0;
   let _touchMoved = false;
-  const SCROLL_THRESHOLD = 8; // px de movimento para considerar scroll
+  let _touchDist = 0;
+  const SCROLL_THRESHOLD = 12; // px — mais tolerante a tremor de mão
 
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
@@ -1355,14 +1356,14 @@ function renderFiles(items) {
     _touchStartX = touch.clientX;
     _touchStartY = touch.clientY;
     _touchMoved = false;
-    // Inicia long press timer
+    _touchDist = 0;
+    // Long press: 800ms (era 600) — menos acidental
     _touchTimer = setTimeout(() => {
-      if (!_touchMoved) {
+      if (!_touchMoved && _touchDist < SCROLL_THRESHOLD) {
         enterSel(card.dataset.path);
-        // Vibração haptic feedback
-        if (navigator.vibrate) navigator.vibrate(50);
+        if (navigator.vibrate) navigator.vibrate(40);
       }
-    }, 600);
+    }, 800);
   };
 
   fl._delegateTouchMove = (e) => {
@@ -1370,7 +1371,8 @@ function renderFiles(items) {
     const touch = e.touches[0];
     const dx = Math.abs(touch.clientX - _touchStartX);
     const dy = Math.abs(touch.clientY - _touchStartY);
-    if (dx > SCROLL_THRESHOLD || dy > SCROLL_THRESHOLD) {
+    _touchDist = Math.max(dx, dy);
+    if (_touchDist > SCROLL_THRESHOLD) {
       _touchMoved = true;
       clearTimeout(_touchTimer);
     }
@@ -1380,18 +1382,22 @@ function renderFiles(items) {
 
   fl._delegateTouchEnd = (e) => {
     clearTimeout(_touchTimer);
-    if (_touchMoved) {
-      _lastScrollTime = Date.now(); // marca quando terminou o scroll
+    if (_touchMoved || _touchDist > SCROLL_THRESHOLD) {
+      _lastScrollTime = Date.now();
       _touchMoved = false;
+      _touchDist = 0;
       return;
     }
     _touchMoved = false;
+    _touchDist = 0;
   };
 
-  // Click só dispara se não foi scroll recente (<400ms)
+  // Click só dispara se não foi scroll recente
+  // 500ms — Android emite click até 300ms após touchend
   fl._safeClick = (e) => {
-    if (Date.now() - _lastScrollTime < 400) {
+    if (Date.now() - _lastScrollTime < 500) {
       e.stopImmediatePropagation();
+      e.preventDefault();
       return;
     }
     fl._delegateHandler(e);
@@ -2815,33 +2821,29 @@ function destroyVirtualScroll() {
 // ─── BARRA DE ESTADO DOS FICHEIROS ───────────────────────────────────────────
 function updateFilesStatus(items) {
   const el = document.getElementById('files-status');
-  if (!el || !items.length) { if(el) el.classList.remove('show'); return; }
+  if (!el) return;
+  if (!items.length) { el.classList.remove('show'); return; }
 
   const dirs   = items.filter(i => i.isDir).length;
   const imgs   = items.filter(i => !i.isDir && isImg(i.name)).length;
   const vids   = items.filter(i => !i.isDir && isVid(i.name)).length;
   const docs   = items.filter(i => !i.isDir && isPdf(i.name)).length;
   const others = items.filter(i => !i.isDir && !isImg(i.name) && !isVid(i.name) && !isPdf(i.name)).length;
+  const total  = items.length;
 
   const parts = [];
-  if (dirs)   parts.push(`<span class="fs-item">📁 <span class="fs-count">${dirs}</span> pasta${dirs!==1?'s':''}</span>`);
-  if (imgs)   parts.push(`<span class="fs-item">🖼️ <span class="fs-count">${imgs}</span> foto${imgs!==1?'s':''}</span>`);
-  if (vids)   parts.push(`<span class="fs-item">🎬 <span class="fs-count">${vids}</span> vídeo${vids!==1?'s':''}</span>`);
-  if (docs)   parts.push(`<span class="fs-item">📄 <span class="fs-count">${docs}</span> doc${docs!==1?'s':''}</span>`);
-  if (others) parts.push(`<span class="fs-item">📎 <span class="fs-count">${others}</span> outro${others!==1?'s':''}</span>`);
+  if (dirs)   parts.push(`<span class="fs-item">📁 <span class="fs-count">${dirs}</span></span>`);
+  if (imgs)   parts.push(`<span class="fs-item">🖼️ <span class="fs-count">${imgs}</span></span>`);
+  if (vids)   parts.push(`<span class="fs-item">🎬 <span class="fs-count">${vids}</span></span>`);
+  if (docs)   parts.push(`<span class="fs-item">📄 <span class="fs-count">${docs}</span></span>`);
+  if (others) parts.push(`<span class="fs-item">📎 <span class="fs-count">${others}</span></span>`);
 
-  const total = items.length;
-  const totalSpan = `<span class="fs-item" style="color:var(--text2)">Total: <span class="fs-count">${total}</span></span>`;
-
+  // Nota: "listados" = estrutura de ficheiros carregada, não os conteúdos/thumbnails
+  const note = S._isSyncing ? ' · ⏳' : ' · ✓';
   el.innerHTML = parts.join('<span class="fs-sep">·</span>') +
-    (parts.length ? '<span class="fs-sep">·</span>' : '') + totalSpan;
+    `<span class="fs-sep">·</span><span class="fs-item" style="color:var(--text3)">${total} itens${note}</span>`;
 
-  // Mostra sempre que há itens
-  if (items.length > 0) {
-    el.classList.add('show');
-  } else {
-    el.classList.remove('show');
-  }
+  el.classList.add('show');
 }
 
 
