@@ -1,95 +1,141 @@
-const CACHE_NAME = 'fc-v23';
-const CACHE_STATIC = 'fc-static-v23';
+/**
+ * FamCloud Service Worker v4.0
+ * 
+ * Estratégia de cache inspirada no Dropbox/Google Photos:
+ * 1. Assets Vite (JS/CSS com hash) — cache permanente
+ * 2. HTML — network-first com fallback offline
+ * 3. Thumbnails/previews — cache 30 dias no SW
+ * 4. Background sync — actualiza cache quando online
+ */
 
-// Assets estáticos que mudam raramente
-const STATIC_ASSETS = [
+const SW_VERSION = 'fc-v24';
+const CACHE_STATIC = 'fc-static-v24';
+const CACHE_THUMBS = 'fc-thumbs-v24';
+const CACHE_HTML   = 'fc-html-v24';
+
+// Assets críticos para offline
+const PRECACHE = [
   '/famcloud/',
   '/famcloud/index.html',
 ];
 
+// ── INSTALL — precache crítico ───────────────────────────────────────────────
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(c => c.addAll(STATIC_ASSETS))
+    caches.open(CACHE_HTML)
+      .then(c => c.addAll(PRECACHE))
       .then(() => self.skipWaiting())
   );
 });
 
+// ── ACTIVATE — limpa caches antigas ─────────────────────────────────────────
 self.addEventListener('activate', e => {
+  const keep = new Set([SW_VERSION, CACHE_STATIC, CACHE_THUMBS, CACHE_HTML]);
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE_NAME && k !== CACHE_STATIC)
-          .map(k => caches.delete(k))
-      ))
+      .then(keys => Promise.all(keys.filter(k => !keep.has(k)).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
+// ── FETCH ────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Nunca interceptar chamadas ao proxy/Nextcloud
-  if (url.hostname.includes('workers.dev') ||
-      url.hostname.includes('your-storageshare.de') ||
-      url.pathname.includes('/nextcloud/') ||
-      url.pathname.includes('/remote.php/') ||
-      url.pathname.includes('/ocs/')) {
-    return;
-  }
-
-  // Share target — recebe ficheiros de outras apps
+  // Share target POST
   if (e.request.method === 'POST' && url.pathname.includes('/famcloud/')) {
-    e.respondWith(
-      (async () => {
-        const formData = await e.request.formData();
-        const files = formData.getAll('files');
-        const db = await openShareDB();
-        const tx = db.transaction('pending', 'readwrite');
-        for (const file of files) {
-          if (file instanceof File) tx.objectStore('pending').add(file);
-        }
-        await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
-        return Response.redirect('/famcloud/', 303);
-      })()
-    );
+    e.respondWith(handleShareTarget(e.request));
     return;
   }
 
   if (e.request.method !== 'GET') return;
 
-  // Assets do Vite (JS/CSS com hash) — cache agressivo stale-while-revalidate
-  const isViteAsset = url.pathname.includes('/assets/') ||
-    url.pathname.match(/\.(js|css|woff2?|ttf|eot)$/);
+  // 1. Proxy/Nextcloud — nunca interceptar dados
+  if (url.hostname.includes('workers.dev') ||
+      url.hostname.includes('your-storageshare.de')) {
+    return; // passa directo
+  }
 
-  if (isViteAsset) {
-    e.respondWith(
-      caches.open(CACHE_STATIC).then(async cache => {
-        const cached = await cache.match(e.request);
-        if (cached) return cached; // Cache hit — instantâneo
-        const fresh = await fetch(e.request);
-        if (fresh && fresh.status === 200) {
-          cache.put(e.request, fresh.clone());
-        }
-        return fresh;
-      })
-    );
+  // 2. Thumbnails e previews — cache agressivo 30 dias
+  if (url.pathname.includes('/core/preview') ||
+      url.pathname.includes('/thumbnail') ||
+      url.searchParams.has('fileId')) {
+    e.respondWith(cacheFirst(e.request, CACHE_THUMBS, 30 * 24 * 60 * 60));
     return;
   }
 
-  // HTML e outros — network-first com fallback
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        if (res && res.status === 200) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-        }
-        return res;
-      })
-      .catch(() => caches.match(e.request))
-  );
+  // 3. Assets Vite (com hash no nome — imutáveis)
+  if (url.pathname.includes('/assets/') ||
+      url.pathname.match(/\.(js|css|woff2?|ttf|eot|png|ico|svg)$/)) {
+    e.respondWith(cacheFirst(e.request, CACHE_STATIC, 365 * 24 * 60 * 60));
+    return;
+  }
+
+  // 4. HTML — stale-while-revalidate
+  if (url.pathname.endsWith('/') || url.pathname.endsWith('.html')) {
+    e.respondWith(staleWhileRevalidate(e.request, CACHE_HTML));
+    return;
+  }
 });
+
+// ── CACHE STRATEGIES ─────────────────────────────────────────────────────────
+
+// Cache-first: serve do cache, actualiza em background
+async function cacheFirst(request, cacheName, maxAgeSeconds) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  
+  if (cached) {
+    const dateHeader = cached.headers.get('date');
+    if (dateHeader) {
+      const age = (Date.now() - new Date(dateHeader).getTime()) / 1000;
+      if (age < maxAgeSeconds) return cached;
+    } else {
+      return cached; // sem date header, serve na mesma
+    }
+  }
+
+  try {
+    const fresh = await fetch(request);
+    if (fresh && fresh.status === 200) {
+      cache.put(request, fresh.clone());
+    }
+    return fresh;
+  } catch(e) {
+    return cached || new Response('Offline', { status: 503 });
+  }
+}
+
+// Stale-while-revalidate: serve cache imediatamente, actualiza em background
+async function staleWhileRevalidate(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+
+  // Actualiza em background
+  const networkPromise = fetch(request).then(fresh => {
+    if (fresh && fresh.status === 200) {
+      cache.put(request, fresh.clone());
+    }
+    return fresh;
+  }).catch(() => null);
+
+  return cached || await networkPromise || new Response('Offline', { status: 503 });
+}
+
+// ── SHARE TARGET ──────────────────────────────────────────────────────────────
+async function handleShareTarget(request) {
+  try {
+    const formData = await request.formData();
+    const files = formData.getAll('files');
+    const db = await openShareDB();
+    const tx = db.transaction('pending', 'readwrite');
+    for (const file of files) {
+      if (file instanceof File) tx.objectStore('pending').add(file);
+    }
+    await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
+  } catch(e) {}
+  return Response.redirect('/famcloud/', 303);
+}
 
 async function openShareDB() {
   return new Promise((res, rej) => {

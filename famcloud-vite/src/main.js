@@ -985,14 +985,15 @@ async function loadFiles(p) {
   pageLoaderStart();
   const fl = document.getElementById('fl');
 
-  // STALE-WHILE-REVALIDATE: mostra cache instantaneamente
+  // ALWAYS SHOW CACHE — se tiver cache, mostra imediatamente
+  // e SEMPRE actualiza em background (como Dropbox/Google Photos)
   const cached = await _idb.get(p);
-  if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
+  if (cached && cached.items && cached.items.length > 0) {
     S.lastItems = cached.items;
     renderFiles(cached.items);
     pageLoaderDone();
     _idxAdd(cached.items, p);
-    // Continua em background para actualizar
+    // Actualiza sempre em background — mostra dados frescos silenciosamente
     _refreshInBackground(p);
     return;
   }
@@ -1352,7 +1353,7 @@ function card(it) {
     // Se tem fileid usa preview do Nextcloud, senão usa o ficheiro directamente
     const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
     const fbUrl = dav(p);
-    inner = `<img class="thumb" data-src="${tUrl}" data-fb="${fbUrl}" alt="">`;
+    inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="${fbUrl}" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.style.display='none'">`;
   } else if (isVid(nm)) {
     const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
     inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
