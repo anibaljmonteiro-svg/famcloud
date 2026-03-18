@@ -170,6 +170,20 @@ async function handleShareTarget(request) {
   return Response.redirect('/famcloud/', 303);
 }
 
+// ── BACKGROUND SYNC — retoma uploads pendentes quando volta online ───────────
+self.addEventListener('sync', e => {
+  if (e.tag === 'fc-upload-retry') {
+    e.waitUntil(notifyClientsToRetry());
+  }
+});
+
+async function notifyClientsToRetry() {
+  const clients = await self.clients.matchAll({ type: 'window' });
+  clients.forEach(client => {
+    client.postMessage({ type: 'BACKGROUND_SYNC', tag: 'fc-upload-retry' });
+  });
+}
+
 async function openShareDB() {
   return new Promise((res, rej) => {
     const r = indexedDB.open('fc-share', 1);

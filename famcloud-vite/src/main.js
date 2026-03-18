@@ -1490,8 +1490,15 @@ function card(it) {
     const fbUrl = dav(p);
     inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="${fbUrl}" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.style.display='none'">`;
   } else if (isVid(nm)) {
-    const vidThumbId = 'vth-' + (fileid || btoa(p).replace(/[^a-z0-9]/gi,'').slice(0,8));
-    inner = `<div class="fic ic-v" id="${vidThumbId}">🎬</div>`;
+    // Usa preview do Nextcloud se tiver fileid, senão ícone
+    if (fileid) {
+      const tUrl = thumbUrl(fileid, 300);
+      inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="" alt=""
+        onload="this.classList.remove('loading');this.classList.add('loaded')"
+        onerror="this.outerHTML='<div class=\'fic ic-v\'>🎬</div>'">`;
+    } else {
+      inner = `<div class="fic ic-v">🎬</div>`;
+    }
   } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
@@ -3086,6 +3093,12 @@ const UPQ = {
 
 async function uploadFiles(fl) {
   if (!fl || !fl.length) return;
+  // Registar background sync para retomar se perder ligação
+  if ('serviceWorker' in navigator && 'SyncManager' in window) {
+    navigator.serviceWorker.ready.then(sw => {
+      sw.sync.register('fc-upload-retry').catch(() => {});
+    });
+  }
   if (fl.length > 200) {
     const ok = confirm(fl.length + ' ficheiros selecionados.\nIsto pode demorar alguns minutos.\nContinuar?');
     if (!ok) return;
@@ -4427,6 +4440,12 @@ window.addEventListener('appinstalled', () => { toast('FamCloud instalada! 🎉'
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/famcloud/sw.js').catch(() => {}));
+  // Recebe mensagem do SW quando volta online com uploads pendentes
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'BACKGROUND_SYNC') {
+      checkUploadQueue();
+    }
+  });
 }
 
 // ─── KEYBOARD ─────────────────────────────────────────────────────────────────
