@@ -478,7 +478,7 @@ function closeDrop() {
   document.getElementById('udrop').classList.remove('show');
   document.getElementById('ubtn').classList.remove('open');
 }
-document.addEventListener('click', e => { if (!e.target.closest('.udrop-wrap')) closeDrop(); });
+document.addEventListener('click', e => { if (!e.target.closest('.udrop-wrap')) setTimeout(() => closeDrop(), 100); });
 
 // ─── OFFLINE ─────────────────────────────────────────────────────────────────
 function setupOffline() {
@@ -1016,6 +1016,15 @@ function pageLoaderDone() {
   if (!el) return;
   el.className = 'page-loader done';
   setTimeout(() => { el.className = 'page-loader'; }, 500);
+}
+
+
+// ─── DEBOUNCE PARA loadFiles ──────────────────────────────────────────────────
+// Previne múltiplos PROPFIND consecutivos (após upload, delete, rename, etc.)
+let _loadDebounceTimer = null;
+function loadFilesDebounced(p, delay = 300) {
+  clearTimeout(_loadDebounceTimer);
+  _loadDebounceTimer = setTimeout(() => loadFiles(p || S.path), delay);
 }
 
 async function loadFiles(p) {
@@ -5631,7 +5640,7 @@ Object.assign(globalThis, {
   loadTree,
   mkTI,
   updateTreeActive,
-  loadFiles,
+  loadFiles, loadFilesDebounced,
   sortItems,
   setSort,
   toggleSortDir,
