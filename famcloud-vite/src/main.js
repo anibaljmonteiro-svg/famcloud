@@ -218,6 +218,9 @@ const _imgCache = new Map();
 const _IMG_CONCURRENCY = 3;
 
 // Cleanup automático do cache de imagens quando excede o limite
+// Blobs activos — não revogar enquanto estão em uso
+const _activeBlobUrls = new Set();
+
 function _imgCacheCleanup() {
   if (_imgCache.size <= _IMG_CACHE_MAX) return;
   // Remove os mais antigos (primeiros 20)
@@ -261,7 +264,10 @@ function _imgCacheSet(key, val) {
     // Remove a entrada mais antiga (Map mantém ordem de inserção)
     const oldest = _imgCache.keys().next().value;
     const oldUrl = _imgCache.get(oldest);
-    try { URL.revokeObjectURL(oldUrl); } catch(e) {}
+    // Só revoga se não estiver activo numa imagem visível
+    if (!_activeBlobUrls.has(oldUrl)) {
+      try { URL.revokeObjectURL(oldUrl); } catch(e) {}
+    }
     _imgCache.delete(oldest);
   }
   _imgCache.set(key, val);
@@ -283,8 +289,11 @@ async function authImg(el, url, fallbackUrl) {
       if (blob.type.startsWith('image/') && blob.size > 100) {
         const objUrl = URL.createObjectURL(blob);
         _imgCache.set(cacheKey, objUrl);
-        _imgCacheCleanup(); // evita memory leak
+        _imgCacheCleanup();
         el.src = objUrl;
+        _activeBlobUrls.add(objUrl);
+        el.onload = () => {}; // mantém activo
+        el.onerror = () => { _activeBlobUrls.delete(objUrl); };
         return;
       }
     }
@@ -1114,20 +1123,62 @@ async function _refreshInBackground(p) {
       if (isDir) folders.push(obj); else files.push(obj);
     });
     const fresh = [...sortItems(folders), ...sortItems(files)];
-    // Só re-renderiza se ainda estiver na mesma pasta E não foi cancelado
-    if (S.path === p && !signal.aborted) {
-      S.lastItems = fresh;
-      renderFiles(fresh);
-      pageLoaderDone();
-    }
-    if (!signal.aborted) {
-      _idb.set(p, fresh);
-      _idxAdd(fresh, p);
+    if (signal.aborted) return;
+
+    // Guarda sempre no cache
+    _idb.set(p, fresh);
+    _idxAdd(fresh, p);
+
+    // Só re-renderiza se estiver na mesma pasta
+    if (S.path !== p) { syncDone(); return; }
+
+    // Compara se houve mudanças reais (nomes + count)
+    const oldNames = new Set(S.lastItems.map(i => i.name));
+    const newNames = new Set(fresh.map(i => i.name));
+    const changed = fresh.length !== S.lastItems.length ||
+      fresh.some(i => !oldNames.has(i.name)) ||
+      S.lastItems.some(i => !newNames.has(i.name));
+
+    if (changed) {
+      // Houve mudanças — re-renderiza só se não está a fazer scroll
+      const fl = document.getElementById('fl');
+      const main = document.getElementById('main');
+      const isScrolling = main && main._isScrolling;
+      if (!isScrolling) {
+        S.lastItems = fresh;
+        renderFiles(fresh);
+      } else {
+        // Está a fazer scroll — guarda e mostra notificação discreta
+        S._pendingRefresh = fresh;
+        _showRefreshBadge();
+      }
     }
     syncDone();
   } catch(e) {
     if (e.name !== 'AbortError') syncDone();
   }
+}
+
+// Badge discreto "Conteúdo actualizado — clica para ver"
+function _showRefreshBadge() {
+  let badge = document.getElementById('refresh-badge');
+  if (badge) return; // já existe
+  badge = document.createElement('button');
+  badge.id = 'refresh-badge';
+  badge.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:300;background:var(--primary);color:#fff;border:none;border-radius:20px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2);font-family:var(--font);opacity:0;transition:opacity .3s';
+  badge.textContent = '↑ Pasta actualizada — toca para ver';
+  badge.onclick = () => {
+    if (S._pendingRefresh) {
+      S.lastItems = S._pendingRefresh;
+      S._pendingRefresh = null;
+      renderFiles(S.lastItems);
+    }
+    badge.remove();
+  };
+  document.body.appendChild(badge);
+  requestAnimationFrame(() => { badge.style.opacity = '1'; });
+  // Auto-desaparece após 5s
+  setTimeout(() => { badge.style.opacity = '0'; setTimeout(() => badge.remove(), 300); }, 5000);
 }
 
 function sortItems(arr) {
@@ -1346,6 +1397,28 @@ function renderFiles(items) {
     fl.innerHTML = '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Modificado</span><span>Ações</span></div>' + items.map(row).join('') + '</div>';
     addSwipeListeners();
   }
+  // Detecta scroll para evitar re-render durante scroll
+  const mainEl = document.getElementById('main');
+  if (mainEl && !mainEl._scrollListenerAdded) {
+    mainEl._scrollListenerAdded = true;
+    let _scrollTimer = null;
+    mainEl.addEventListener('scroll', () => {
+      mainEl._isScrolling = true;
+      clearTimeout(_scrollTimer);
+      _scrollTimer = setTimeout(() => {
+        mainEl._isScrolling = false;
+        // Se há refresh pendente, aplica agora
+        if (S._pendingRefresh && S.path) {
+          S.lastItems = S._pendingRefresh;
+          S._pendingRefresh = null;
+          renderFiles(S.lastItems);
+          const badge = document.getElementById('refresh-badge');
+          if (badge) badge.remove();
+        }
+      }, 150);
+    }, { passive: true });
+  }
+
   // Lazy loading para thumbnails e imagens
   requestAnimationFrame(() => {
     fl.querySelectorAll('img[data-src]').forEach(img => {
@@ -2562,7 +2635,7 @@ async function coalescedFetch(url, options = {}) {
 // ─── VIRTUAL SCROLLING ───────────────────────────────────────────────────────
 // Para pastas com muitos itens, renderiza apenas o que está visível
 // Threshold: activa para >100 itens (abaixo disso DOM normal é mais simples)
-const VS_THRESHOLD = 100;
+const VS_THRESHOLD = 50; // Activar virtual scroll com 50+ itens
 const VS_ITEM_H_GRID = 180;  // altura aproximada de um card na grid
 const VS_ITEM_H_LIST = 48;   // altura de uma row na lista
 const VS_COLS_ESTIMATE = 4;  // colunas estimadas (ajusta no resize)
