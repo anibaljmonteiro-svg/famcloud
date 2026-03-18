@@ -264,10 +264,8 @@ function _imgCacheSet(key, val) {
     // Remove a entrada mais antiga (Map mantém ordem de inserção)
     const oldest = _imgCache.keys().next().value;
     const oldUrl = _imgCache.get(oldest);
-    // Só revoga se não estiver activo numa imagem visível
-    if (!_activeBlobUrls.has(oldUrl)) {
-      try { URL.revokeObjectURL(oldUrl); } catch(e) {}
-    }
+    // Nunca revogar — deixar o GC tratar (evita ERR_FILE_NOT_FOUND)
+    // URLs de blob são pequenas e o GC limpa quando necessário
     _imgCache.delete(oldest);
   }
   _imgCache.set(key, val);
@@ -1170,18 +1168,10 @@ async function _refreshInBackground(p) {
       S.lastItems.some(i => !newNames.has(i.name));
 
     if (changed) {
-      // Houve mudanças — re-renderiza só se não está a fazer scroll
-      const fl = document.getElementById('fl');
-      const main = document.getElementById('main');
-      const isScrolling = main && main._isScrolling;
-      if (!isScrolling) {
-        S.lastItems = fresh;
-        renderFiles(fresh);
-      } else {
-        // Está a fazer scroll — guarda e mostra notificação discreta
-        S._pendingRefresh = fresh;
-        _showRefreshBadge();
-      }
+      // Guarda dados novos mas NÃO re-renderiza automaticamente
+      // Evita scroll a tremer e re-renders inesperados
+      S._pendingRefresh = fresh;
+      _showRefreshBadge();
     }
     syncDone();
   } catch(e) {
@@ -2789,12 +2779,8 @@ function _vsRender() {
   // Lazy load images no novo conteúdo
   content.querySelectorAll('img[data-src]').forEach(img => _lazyObserver.observe(img));
 
-  // Video thumbnails
-  visible.filter(it => !it.isDir && isVid(it.name)).forEach(it => {
-    const id = 'vth-' + (it.fileid || btoa(it.path).replace(/[^a-z0-9]/gi,'').slice(0,8));
-    const el = document.getElementById(id);
-    if (el) generateVideoThumb(el, it.path);
-  });
+  // Video thumbnails — desactivado (causa ERR_INSUFFICIENT_RESOURCES com muitos vídeos)
+  // Usa preview do Nextcloud quando disponível, senão mostra ícone 🎬
 }
 
 function destroyVirtualScroll() {

@@ -922,7 +922,7 @@ body {
 ═══════════════════════════════════════ */
 .page-loader {
   position: fixed; top: 0; left: 0; right: 0;
-  height: 3px; z-index: 9999;
+  height: 3px !important; max-height: 3px !important; z-index: 9999;
   background: var(--gradient);
   transform-origin: left;
   transform: scaleX(0);
