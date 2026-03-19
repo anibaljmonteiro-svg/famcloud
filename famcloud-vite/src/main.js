@@ -3861,7 +3861,9 @@ function openMedia(p, nm) {
   closeBtn.textContent = '✕ Fechar';
   closeBtn.onclick = () => {
     mediaEl.pause();
-    mediaEl.src = '';
+    mediaEl.removeAttribute('src');
+    mediaEl.load();
+    if (mediaEl._blobUrl) { URL.revokeObjectURL(mediaEl._blobUrl); mediaEl._blobUrl = null; }
     overlay.remove();
     document.removeEventListener('keydown', escHandler);
   };
@@ -3935,7 +3937,8 @@ async function _mediaFallbackLoad(mediaEl, loadingEl, p, nm) {
     const blob = new Blob(chunks);
     const blobUrl = URL.createObjectURL(blob);
     mediaEl.src = blobUrl;
-    mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+    mediaEl._blobUrl = blobUrl;
+    mediaEl.onended = () => { URL.revokeObjectURL(blobUrl); mediaEl._blobUrl = null; };
     loadingEl.style.display = 'none';
     mediaEl.play().catch(() => {});
   } catch(e) {
