@@ -3820,102 +3820,54 @@ function openMedia(p, nm) {
   if (item) Recents.add(item);
   const ext = ex(nm);
   const isVideo = VE.includes(ext);
-  const tag = isVideo ? 'video' : 'audio';
 
+  // Criar overlay
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px';
 
+  // Título
   const titleEl = document.createElement('div');
   titleEl.style.cssText = 'color:rgba(255,255,255,.8);font-size:13px;font-weight:500;max-width:80vw;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
   titleEl.textContent = nm;
 
-  const mediaEl = document.createElement(tag);
+  // Elemento de media
+  const mediaEl = document.createElement(isVideo ? 'video' : 'audio');
   mediaEl.controls = true;
-  mediaEl.autoplay = true;
+  mediaEl.autoplay = false; // não auto-play — esperar pelo load
   mediaEl.preload = 'metadata';
-  mediaEl.playsInline = true; // iOS
+  mediaEl.playsInline = true;
   if (isVideo) {
-    mediaEl.style.cssText = 'max-width:96vw;max-height:76vh;border-radius:8px;background:#000;';
+    mediaEl.style.cssText = 'max-width:96vw;max-height:72vh;border-radius:8px;background:#000;';
   } else {
     mediaEl.style.cssText = 'width:90vw;margin-top:10px;';
   }
 
-  // ── STREAMING REAL VIA SERVICE WORKER ────────────────────────
-  // O SW intercepta /famcloud/stream?path=... e adiciona auth header
-  // O browser faz Range requests nativamente → seek instantâneo
-  // Sem download completo — vídeo de 10GB começa em 2 segundos
-  const swAvailable = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
-  
-  if (swAvailable && isVideo) {
-    // Actualiza auth no SW antes de abrir
-    navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
-    // URL especial que o SW intercepta
-    // Usar S.server em vez de PROXY (minificado pelo Vite)
-    const davPathM = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
-    const streamUrl = `/famcloud/stream?path=${encodeURIComponent(davPathM)}&proxy=${encodeURIComponent(S.server + '/nextcloud')}`;
-    mediaEl.src = streamUrl;
-    mediaEl.load();
-    loadingEl.style.display = 'none';
-  } else {
-    // Fallback: download progressivo com progresso
-    loadingEl.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div class="spin" style="border-color:rgba(255,255,255,.3);border-top-color:#fff;width:28px;height:28px"></div><span id="media-load-txt">A carregar...</span></div>';
-    
-    (async () => {
-      try {
-        const r = await fetch(dav(p), { headers: { 'Authorization': auth() } });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        
-        const total = parseInt(r.headers.get('content-length') || '0');
-        const reader = r.body.getReader();
-        const chunks = [];
-        let received = 0;
-        const txt = document.getElementById('media-load-txt');
-        
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          if (total && txt) txt.textContent = `${Math.round(received/total*100)}% — ${fmtSz(received)} / ${fmtSz(total)}`;
-        }
-        
-        const blob = new Blob(chunks);
-        const blobUrl = URL.createObjectURL(blob);
-        mediaEl.src = blobUrl;
-        mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
-        loadingEl.style.display = 'none';
-      } catch(e) {
-        loadingEl.innerHTML = '❌ ' + e.message;
-      }
-    })();
-  }
-
+  // Loading indicator — criado ANTES de ser usado
   const loadingEl = document.createElement('div');
   loadingEl.style.cssText = 'color:rgba(255,255,255,.7);font-size:13px;text-align:center;min-height:40px;display:flex;align-items:center;justify-content:center';
-  loadingEl.textContent = isVideo && swAvailable ? '' : '⏳ A carregar...';
+  loadingEl.innerHTML = '<div class="spin" style="width:24px;height:24px;border-width:2.5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;margin-right:8px"></div> A carregar...';
 
-  // Botões de controlo
+  // Botões
   const btns = document.createElement('div');
   btns.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:center';
 
   const dlBtn = document.createElement('button');
-  dlBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer';
+  dlBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer;touch-action:manipulation';
   dlBtn.textContent = '⬇️ Download';
   dlBtn.onclick = () => dlF(p, nm);
 
   const closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer';
+  closeBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer;touch-action:manipulation';
   closeBtn.textContent = '✕ Fechar';
   closeBtn.onclick = () => {
     mediaEl.pause();
-    if (mediaEl.src?.startsWith('blob:')) URL.revokeObjectURL(mediaEl.src);
     mediaEl.src = '';
     overlay.remove();
+    document.removeEventListener('keydown', escHandler);
   };
 
   btns.appendChild(dlBtn);
   btns.appendChild(closeBtn);
-
   overlay.appendChild(titleEl);
   overlay.appendChild(mediaEl);
   overlay.appendChild(loadingEl);
@@ -3923,10 +3875,74 @@ function openMedia(p, nm) {
   overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
   document.body.appendChild(overlay);
 
-  // Fecha com Escape
-  const escHandler = (e) => { if (e.key === 'Escape') { closeBtn.click(); document.removeEventListener('keydown', escHandler); } };
+  // Keyboard
+  const escHandler = (e) => { if (e.key === 'Escape') closeBtn.click(); };
   document.addEventListener('keydown', escHandler);
+
+  // Carregar o vídeo
+  const swAvailable = isVideo && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+
+  if (swAvailable) {
+    // Streaming via SW — sem download completo, seek nativo
+    navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
+    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+    const streamUrl = '/famcloud/stream?path=' + encodeURIComponent(davPath) + '&proxy=' + encodeURIComponent(S.server + '/nextcloud');
+    mediaEl.src = streamUrl;
+    mediaEl.load();
+    mediaEl.oncanplay = () => {
+      loadingEl.style.display = 'none';
+      mediaEl.play().catch(() => {});
+    };
+    mediaEl.onerror = () => {
+      // Fallback para download directo
+      _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+    };
+  } else if (isVideo) {
+    // Fallback: download progressivo
+    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+  } else {
+    // Áudio — stream directo funciona
+    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+    mediaEl.src = S.server + '/nextcloud' + davPath;
+    mediaEl.setRequestHeader = undefined; // não existe em audio — usar fetch wrapper
+    // Para áudio usa fetch com auth
+    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+  }
 }
+
+async function _mediaFallbackLoad(mediaEl, loadingEl, p, nm) {
+  try {
+    const r = await fetch(S.server + '/nextcloud/remote.php/dav/files/' + encodeURIComponent(S.user) + p, {
+      headers: { 'Authorization': auth() }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const total = parseInt(r.headers.get('content-length') || '0');
+    const reader = r.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (total) {
+        const pct = Math.round(received / total * 100);
+        loadingEl.innerHTML = pct + '% — ' + fmtSz(received) + ' / ' + fmtSz(total);
+      } else {
+        loadingEl.textContent = fmtSz(received) + ' carregados...';
+      }
+    }
+    const blob = new Blob(chunks);
+    const blobUrl = URL.createObjectURL(blob);
+    mediaEl.src = blobUrl;
+    mediaEl.onended = () => URL.revokeObjectURL(blobUrl);
+    loadingEl.style.display = 'none';
+    mediaEl.play().catch(() => {});
+  } catch(e) {
+    loadingEl.textContent = '❌ ' + e.message;
+  }
+}
+
 
 // ─── SHARE ────────────────────────────────────────────────────────────────────
 // Partilha activa — para editar/eliminar
