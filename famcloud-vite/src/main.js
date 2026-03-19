@@ -5769,5 +5769,21 @@ Object.assign(globalThis, {
   UQ,
   THEMES,
 });
-// Registar todos os aliases _fc_ para o wrapper HTML
-_registerFcFunctions(globalThis);
+// Registar aliases _fc_ para o wrapper HTML (timing fix)
+// O wrapper no HTML aguarda estes aliases antes de executar as funções
+{
+  const _fc_fns = {doLogin,doLogout,toggleDrop,closeDrop,goHome,goBack,toggleSB,
+    openSearch,closeSearch,switchTab,openProfile,openPassM,installPWA,openTrash,
+    openActivity,openQuota,openStorageStats,loadWeather,calNav,submitNewEvent,
+    newNote,saveNote,deleteNote,notesBack,emptyTrash,toggleFab,closeFab,
+    cancelUpload,selAll,bulkDelete,bulkDownload,bulkMoveOpen,clearSel,
+    setV,setSort,toggleSortDir,createFolder,doRename,doMove,
+    startSlideshow,startSlideshowFromFolder,closeSlideshow,ssPause,ssSpeed,
+    ssInfo,ssNext,closeGallery,closePdf,pdfNav,copyShareLink,createShare,
+    schedSearch,srClick,calDayClick,filterNotes,openNote,showM,hideM,showRecents,
+    galleryNav,galleryGoTo,galleryZoomToggle,shareItem,openVersions,openTags,
+    assignTag,removeTag,createAndAssignTag,openTagFilter,clearTagFilter,
+    toggleTagFilter,openMoveModal,startRn,dlF,delIt,enterSel,selAll,
+    openGallery,openPdf,openMedia,navTo,openDir};
+  Object.keys(_fc_fns).forEach(k => { window['_fc_'+k] = _fc_fns[k]; });
+}
