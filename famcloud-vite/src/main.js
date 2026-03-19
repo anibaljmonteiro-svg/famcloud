@@ -3400,9 +3400,15 @@ function openGallery(clickedPath) {
   setupGalleryTouch();
 }
 
-function renderGallery() {
+function renderGallery(dir) {
   const it = S.galleryItems[S.galleryIdx]; if (!it) return;
   const img = document.getElementById('gallery-img');
+  // Animação de slide
+  if (dir) {
+    img.classList.remove('slide-left', 'slide-right');
+    void img.offsetWidth; // reflow para reiniciar animação
+    img.classList.add(dir === 'left' ? 'slide-left' : 'slide-right');
+  }
   const loadingEl = document.getElementById('gallery-loading');
   const brokenEl = document.getElementById('gallery-broken');
   const progFill = document.getElementById('gallery-prog-fill');
@@ -3447,13 +3453,34 @@ function renderGallery() {
     const at = strip.querySelector('.active');
     if (at) at.scrollIntoView({inline:'center', behavior:'smooth'});
   }, 80);
+
+  // Dots de posição (só se <= 20 imagens)
+  let dotsEl = document.getElementById('gallery-dots');
+  if (!dotsEl) {
+    dotsEl = document.createElement('div');
+    dotsEl.id = 'gallery-dots';
+    dotsEl.className = 'gallery-dots';
+    document.getElementById('gallery-viewer')?.appendChild(dotsEl);
+  }
+  if (S.galleryItems.length <= 20) {
+    dotsEl.innerHTML = S.galleryItems.map((_, i) =>
+      `<div class="gallery-dot-item${i === S.galleryIdx ? ' active' : ''}"></div>`
+    ).join('');
+    dotsEl.style.display = 'flex';
+  } else {
+    dotsEl.style.display = 'none';
+  }
 }
 
 function galleryNav(d) {
   S.galleryIdx = (S.galleryIdx + d + S.galleryItems.length) % S.galleryItems.length;
-  renderGallery();
+  renderGallery(d > 0 ? 'left' : 'right');
 }
-function galleryGoTo(i) { S.galleryIdx = i; renderGallery(); }
+function galleryGoTo(i) {
+  const d = i > S.galleryIdx ? 1 : -1;
+  S.galleryIdx = i;
+  renderGallery(d > 0 ? 'left' : 'right');
+}
 
 function galleryZoomToggle() {
   S.galleryZoom = S.galleryZoom > 1 ? 1 : 2.5;
@@ -3864,21 +3891,109 @@ function openMedia(p, nm) {
   loadingEl.style.cssText = 'color:rgba(255,255,255,.7);font-size:13px;text-align:center;min-height:40px;display:flex;align-items:center;justify-content:center';
   loadingEl.innerHTML = '<div class="spin" style="width:24px;height:24px;border-width:2.5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;margin-right:8px"></div> A carregar...';
 
-  // Botões
-  const btns = document.createElement('div');
-  btns.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:center';
+  // ── CONTROLOS CUSTOMIZADOS ──────────────────────────────────
+  const controls = document.createElement('div');
+  controls.style.cssText = 'width:100%;max-width:96vw;display:flex;flex-direction:column;gap:8px;padding:0 4px';
 
-  const dlBtn = document.createElement('button');
-  dlBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer;touch-action:manipulation';
-  dlBtn.textContent = '⬇️ Download';
-  dlBtn.onclick = () => dlF(p, nm);
+  // Barra de progresso
+  const progressWrap = document.createElement('div');
+  progressWrap.style.cssText = 'width:100%;height:6px;background:rgba(255,255,255,.2);border-radius:3px;cursor:pointer;touch-action:manipulation;position:relative';
+  const progressFill = document.createElement('div');
+  progressFill.style.cssText = 'height:100%;width:0%;background:var(--primary,#4f46e5);border-radius:3px;pointer-events:none;transition:width .1s';
+  const progressBuf = document.createElement('div');
+  progressBuf.style.cssText = 'position:absolute;top:0;left:0;height:100%;width:0%;background:rgba(255,255,255,.15);border-radius:3px;pointer-events:none';
+  progressWrap.appendChild(progressBuf);
+  progressWrap.appendChild(progressFill);
 
-  const closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer;touch-action:manipulation';
-  closeBtn.textContent = '✕ Fechar';
-  closeBtn.onclick = () => {
-    // Cancelar download em curso
-    if (overlay._abortMedia) overlay._abortMedia();
+  // Linha de botões
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+
+  const mkBtn = (txt, title) => {
+    const b = document.createElement('button');
+    b.textContent = txt; b.title = title;
+    b.style.cssText = 'padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:7px;color:#fff;font-size:13px;cursor:pointer;touch-action:manipulation;flex-shrink:0';
+    return b;
+  };
+
+  const playBtn = mkBtn('▶️', 'Play/Pause (Espaço)');
+  const timeEl = document.createElement('span');
+  timeEl.style.cssText = 'color:rgba(255,255,255,.7);font-size:12px;flex:1;text-align:center;white-space:nowrap';
+  timeEl.textContent = '0:00 / 0:00';
+  const skipBk = mkBtn('⏪ 10s', 'Recuar 10s');
+  const skipFw = mkBtn('10s ⏩', 'Avançar 10s');
+  const speedBtn = mkBtn('1×', 'Velocidade');
+  const volBtn = mkBtn('🔊', 'Volume');
+  const fsBtn = mkBtn('⛶', 'Fullscreen');
+  const dlBtn2 = mkBtn('⬇️', 'Download');
+  const closeBtn = mkBtn('✕', 'Fechar');
+  closeBtn.style.cssText += ';background:rgba(200,50,50,.4)';
+
+  btnRow.append(playBtn, skipBk, skipFw, speedBtn, volBtn, fsBtn, dlBtn2, closeBtn);
+  controls.append(progressWrap, btnRow);
+
+  // Montar overlay
+  overlay.appendChild(titleEl);
+  overlay.appendChild(mediaEl);
+  overlay.appendChild(loadingEl);
+  if (isVideo) overlay.appendChild(controls);
+  else overlay.appendChild(btnRow); // áudio: só botões
+  document.body.appendChild(overlay);
+  _activeMediaOverlay = overlay;
+
+  // ── LÓGICA DOS CONTROLOS ─────────────────────────────────────
+  const fmt = s => { const m=Math.floor(s/60); return m+':'+(Math.floor(s%60)+'').padStart(2,'0'); };
+  const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  let speedIdx = 2;
+
+  mediaEl.ontimeupdate = () => {
+    if (!mediaEl.duration) return;
+    const pct = mediaEl.currentTime / mediaEl.duration * 100;
+    progressFill.style.width = pct + '%';
+    timeEl.textContent = fmt(mediaEl.currentTime) + ' / ' + fmt(mediaEl.duration);
+  };
+  mediaEl.onprogress = () => {
+    if (!mediaEl.duration || !mediaEl.buffered.length) return;
+    progressBuf.style.width = (mediaEl.buffered.end(mediaEl.buffered.length-1) / mediaEl.duration * 100) + '%';
+  };
+  mediaEl.onplay = () => { playBtn.textContent = '⏸️'; };
+  mediaEl.onpause = () => { playBtn.textContent = '▶️'; };
+  mediaEl.oncanplay = () => { loadingEl.style.display = 'none'; };
+
+  playBtn.onclick = () => mediaEl.paused ? mediaEl.play() : mediaEl.pause();
+  skipBk.onclick = () => { mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 10); };
+  skipFw.onclick = () => { mediaEl.currentTime = Math.min(mediaEl.duration||0, mediaEl.currentTime + 10); };
+  speedBtn.onclick = () => {
+    speedIdx = (speedIdx + 1) % speeds.length;
+    mediaEl.playbackRate = speeds[speedIdx];
+    speedBtn.textContent = speeds[speedIdx] + '×';
+  };
+  volBtn.onclick = () => {
+    mediaEl.muted = !mediaEl.muted;
+    volBtn.textContent = mediaEl.muted ? '🔇' : '🔊';
+  };
+  fsBtn.onclick = () => {
+    const el = overlay;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen?.() || el.webkitRequestFullscreen?.();
+    } else {
+      document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+    }
+  };
+  dlBtn2.onclick = () => dlF(p, nm);
+
+  // Seek na barra de progresso
+  const seekTo = (e) => {
+    if (!mediaEl.duration) return;
+    const rect = progressWrap.getBoundingClientRect();
+    const x = (e.touches?.[0]?.clientX ?? e.clientX) - rect.left;
+    mediaEl.currentTime = Math.max(0, Math.min(1, x / rect.width)) * mediaEl.duration;
+  };
+  progressWrap.addEventListener('click', seekTo);
+  progressWrap.addEventListener('touchend', seekTo, {passive:true});
+
+  // Fechar
+  const doClose = () => {
     mediaEl.pause();
     mediaEl.removeAttribute('src');
     mediaEl.load();
@@ -3887,28 +4002,51 @@ function openMedia(p, nm) {
     overlay.remove();
     document.removeEventListener('keydown', escHandler);
   };
+  closeBtn.onclick = doClose;
+  overlay.onclick = (e) => { if (e.target === overlay) doClose(); };
 
-  btns.appendChild(dlBtn);
-  btns.appendChild(closeBtn);
-  overlay.appendChild(titleEl);
-  overlay.appendChild(mediaEl);
-  overlay.appendChild(loadingEl);
-  overlay.appendChild(btns);
-  overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
-  document.body.appendChild(overlay);
-  _activeMediaOverlay = overlay; // registar como activo
-
-  // Keyboard
-  const escHandler = (e) => { if (e.key === 'Escape') closeBtn.click(); };
+  // Keyboard shortcuts
+  const escHandler = (e) => {
+    if (e.key === 'Escape') doClose();
+    else if (e.key === ' ') { e.preventDefault(); mediaEl.paused ? mediaEl.play() : mediaEl.pause(); }
+    else if (e.key === 'ArrowLeft') mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 10);
+    else if (e.key === 'ArrowRight') mediaEl.currentTime = Math.min(mediaEl.duration||0, mediaEl.currentTime + 10);
+    else if (e.key === 'f') fsBtn?.click();
+    else if (e.key === 'm') volBtn?.click();
+  };
   document.addEventListener('keydown', escHandler);
 
-  // AbortController para cancelar o download quando o player fecha
-  const mediaAbort = new AbortController();
-  overlay._abortMedia = () => mediaAbort.abort();
+  // Carregar o vídeo
+  // Se há upload activo, não usar SW stream (evita competição por conexões HTTP)
+  const hasActiveUpload = UPQ.jobs.some(j => j.status === 'run');
+  const swAvailable = isVideo && !hasActiveUpload && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
 
-  // Carregar sempre via download progressivo com AbortController
-  // O SW stream não tem forma de ser cancelado de forma limpa
-  _mediaFallbackLoad(mediaEl, loadingEl, p, nm, mediaAbort.signal);
+  if (swAvailable) {
+    // Streaming via SW — sem download completo, seek nativo
+    navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
+    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+    const streamUrl = '/famcloud/stream?path=' + encodeURIComponent(davPath) + '&proxy=' + encodeURIComponent(S.server + '/nextcloud');
+    mediaEl.src = streamUrl;
+    mediaEl.load();
+    mediaEl.oncanplay = () => {
+      loadingEl.style.display = 'none';
+      mediaEl.play().catch(() => {});
+    };
+    mediaEl.onerror = () => {
+      // Fallback para download directo
+      _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+    };
+  } else if (isVideo) {
+    // Fallback: download progressivo
+    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+  } else {
+    // Áudio — stream directo funciona
+    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
+    mediaEl.src = S.server + '/nextcloud' + davPath;
+    mediaEl.setRequestHeader = undefined; // não existe em audio — usar fetch wrapper
+    // Para áudio usa fetch com auth
+    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
+  }
 }
 
 async function _mediaFallbackLoad(mediaEl, loadingEl, p, nm) {
