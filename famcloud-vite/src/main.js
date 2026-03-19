@@ -1465,10 +1465,16 @@ function card(it) {
   if (isDir) {
     inner = `<div class="fic ic-f">📁</div>`;
   } else if (isImg(nm)) {
-    // Se tem fileid usa preview do Nextcloud, senão usa o ficheiro directamente
-    const tUrl = fileid ? thumbUrl(fileid, 300) : dav(p);
-    const fbUrl = dav(p);
-    inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="${fbUrl}" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.style.display='none'">`;
+    if (fileid) {
+      // Preview via Nextcloud — sem fallback para ficheiro completo no grid.
+      // Se o preview falhar: Worker v5 devolve SVG placeholder (200 image/svg+xml).
+      // O download completo só acontece quando o utilizador abre a galeria.
+      const tUrl = thumbUrl(fileid, 300);
+      inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
+    } else {
+      // Sem fileid: ícone imediato, sem pedido de rede. Ficheiro completo só na galeria.
+      inner = `<div class="fic ic-i">🖼️</div>`;
+    }
   } else if (isVid(nm)) {
     // Usa preview do Nextcloud se tiver fileid, senão ícone
     if (fileid) {
@@ -3442,12 +3448,18 @@ function renderGallery(dir) {
   document.getElementById('gallery-nm').textContent = it.name;
   document.getElementById('gallery-count').textContent = (S.galleryIdx+1) + ' / ' + S.galleryItems.length;
   // strip thumbnails
+  // Usa preview 128px se houver fileid — evita descarregar ficheiros completos
+  // (numa pasta com 229 fotos = 229 downloads desnecessários antes desta fix)
   const strip = document.getElementById('gallery-strip');
-  strip.innerHTML = S.galleryItems.map((g,i) =>
-    `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${dav(g.path)}" alt="${g.name}" onclick="window.galleryGoTo(${i})">`
-  ).join('');
+  strip.innerHTML = S.galleryItems.map((g,i) => {
+    const tUrl = g.fileid ? thumbUrl(g.fileid, 128) : dav(g.path);
+    const fbUrl = g.fileid ? dav(g.path) : '';
+    return `<img class="gallery-thumb${i===S.galleryIdx?' active':''}" data-src="${tUrl}" data-fb="${fbUrl}" alt="${g.name}" onclick="window.galleryGoTo(${i})">`;
+  }).join('');
   strip.querySelectorAll('img[data-src]').forEach(img => {
-    const src = img.dataset.src; delete img.dataset.src; authImg(img, src);
+    const src = img.dataset.src; const fb = img.dataset.fb || '';
+    delete img.dataset.src; delete img.dataset.fb;
+    authImg(img, src, fb);
   });
   setTimeout(() => {
     const at = strip.querySelector('.active');
