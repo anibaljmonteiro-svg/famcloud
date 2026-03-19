@@ -1340,71 +1340,44 @@ function renderFiles(items) {
     showCtxMenu(e, card.dataset.path, card.dataset.name, card.dataset.dir==='1', card.dataset.fid||'');
   };
 
-  // Touch handling robusto para mobile
-  // Distingue tap, long press e scroll
+  // Touch handling simplificado — deixa o browser gerir o scroll nativamente
+  // Só intercepta long press para selecção múltipla
   let _touchTimer = null;
-  let _touchStartX = 0;
-  let _touchStartY = 0;
-  let _touchMoved = false;
-  let _touchDist = 0;
-  const SCROLL_THRESHOLD = 12; // px — mais tolerante a tremor de mão
+  let _touchStartX = 0, _touchStartY = 0;
+  let _didScroll = false;
 
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
     if (!card) return;
-    const touch = e.touches[0];
-    _touchStartX = touch.clientX;
-    _touchStartY = touch.clientY;
-    _touchMoved = false;
-    _touchDist = 0;
-    // Long press: 800ms (era 600) — menos acidental
+    _touchStartX = e.touches[0].clientX;
+    _touchStartY = e.touches[0].clientY;
+    _didScroll = false;
     _touchTimer = setTimeout(() => {
-      if (!_touchMoved && _touchDist < SCROLL_THRESHOLD) {
+      if (!_didScroll) {
         enterSel(card.dataset.path);
         if (navigator.vibrate) navigator.vibrate(40);
       }
-    }, 800);
+    }, 700);
   };
 
   fl._delegateTouchMove = (e) => {
-    if (!_touchStartX && !_touchStartY) return;
-    const touch = e.touches[0];
-    const dx = Math.abs(touch.clientX - _touchStartX);
-    const dy = Math.abs(touch.clientY - _touchStartY);
-    _touchDist = Math.max(dx, dy);
-    if (_touchDist > SCROLL_THRESHOLD) {
-      _touchMoved = true;
+    const dx = Math.abs(e.touches[0].clientX - _touchStartX);
+    const dy = Math.abs(e.touches[0].clientY - _touchStartY);
+    if (dx > 6 || dy > 6) {
+      _didScroll = true;
       clearTimeout(_touchTimer);
     }
   };
 
-  let _lastScrollTime = 0;
-
   fl._delegateTouchEnd = (e) => {
     clearTimeout(_touchTimer);
-    if (_touchMoved || _touchDist > SCROLL_THRESHOLD) {
-      _lastScrollTime = Date.now();
-      _touchMoved = false;
-      _touchDist = 0;
-      return;
-    }
-    _touchMoved = false;
-    _touchDist = 0;
   };
 
-  // Click só dispara se não foi scroll recente
-  // 500ms — Android emite click até 300ms após touchend
   fl._safeClick = (e) => {
-    if (Date.now() - _lastScrollTime < 500) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      return;
-    }
+    if (_didScroll) { _didScroll = false; return; }
     fl._delegateHandler(e);
   };
 
-  // Adiciona listener de touchmove para detectar scroll
-  if (fl._delegateTouchMove) fl.removeEventListener('touchmove', fl._delegateTouchMove);
   fl.addEventListener('click', fl._safeClick);
   fl.addEventListener('contextmenu', fl._delegateCTX);
   fl.addEventListener('touchstart', fl._delegateTouch, {passive:true});
