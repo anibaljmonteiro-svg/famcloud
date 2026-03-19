@@ -3877,6 +3877,8 @@ function openMedia(p, nm) {
   closeBtn.style.cssText = 'padding:7px 16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:8px;color:white;font-family:var(--font);font-size:12px;cursor:pointer;touch-action:manipulation';
   closeBtn.textContent = '✕ Fechar';
   closeBtn.onclick = () => {
+    // Cancelar download em curso
+    if (overlay._abortMedia) overlay._abortMedia();
     mediaEl.pause();
     mediaEl.removeAttribute('src');
     mediaEl.load();
@@ -3900,37 +3902,13 @@ function openMedia(p, nm) {
   const escHandler = (e) => { if (e.key === 'Escape') closeBtn.click(); };
   document.addEventListener('keydown', escHandler);
 
-  // Carregar o vídeo
-  // Se há upload activo, não usar SW stream (evita competição por conexões HTTP)
-  const hasActiveUpload = UPQ.jobs.some(j => j.status === 'run');
-  const swAvailable = isVideo && !hasActiveUpload && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+  // AbortController para cancelar o download quando o player fecha
+  const mediaAbort = new AbortController();
+  overlay._abortMedia = () => mediaAbort.abort();
 
-  if (swAvailable) {
-    // Streaming via SW — sem download completo, seek nativo
-    navigator.serviceWorker.controller.postMessage({ type: 'SET_AUTH', auth: auth() });
-    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
-    const streamUrl = '/famcloud/stream?path=' + encodeURIComponent(davPath) + '&proxy=' + encodeURIComponent(S.server + '/nextcloud');
-    mediaEl.src = streamUrl;
-    mediaEl.load();
-    mediaEl.oncanplay = () => {
-      loadingEl.style.display = 'none';
-      mediaEl.play().catch(() => {});
-    };
-    mediaEl.onerror = () => {
-      // Fallback para download directo
-      _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
-    };
-  } else if (isVideo) {
-    // Fallback: download progressivo
-    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
-  } else {
-    // Áudio — stream directo funciona
-    const davPath = '/remote.php/dav/files/' + encodeURIComponent(S.user) + p;
-    mediaEl.src = S.server + '/nextcloud' + davPath;
-    mediaEl.setRequestHeader = undefined; // não existe em audio — usar fetch wrapper
-    // Para áudio usa fetch com auth
-    _mediaFallbackLoad(mediaEl, loadingEl, p, nm);
-  }
+  // Carregar sempre via download progressivo com AbortController
+  // O SW stream não tem forma de ser cancelado de forma limpa
+  _mediaFallbackLoad(mediaEl, loadingEl, p, nm, mediaAbort.signal);
 }
 
 async function _mediaFallbackLoad(mediaEl, loadingEl, p, nm) {
