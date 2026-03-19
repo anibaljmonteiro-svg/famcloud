@@ -2709,11 +2709,11 @@ async function coalescedFetch(url, options = {}) {
 // ─── VIRTUAL SCROLLING ───────────────────────────────────────────────────────
 // Para pastas com muitos itens, renderiza apenas o que está visível
 // Threshold: activa para >100 itens (abaixo disso DOM normal é mais simples)
-const VS_THRESHOLD = 50; // Activar virtual scroll com 50+ itens
+const VS_THRESHOLD = 500; // Virtual scroll só para pastas muito grandes (desactivado na prática)
 const VS_ITEM_H_GRID = 180;  // altura aproximada de um card na grid
 const VS_ITEM_H_LIST = 48;   // altura de uma row na lista
 const VS_COLS_ESTIMATE = 4;  // colunas estimadas (ajusta no resize)
-const VS_BUFFER = 3;         // linhas extra acima e abaixo do viewport
+const VS_BUFFER = 2;
 
 let _vsState = null; // estado do virtual scroll activo
 
@@ -2738,7 +2738,7 @@ function initVirtualScroll(items, container) {
   // Listener de scroll no container pai
   const main = document.getElementById('main');
   if (main._vsHandler) main.removeEventListener('scroll', main._vsHandler);
-  main._vsHandler = _vsThrottle(_vsRender, 50);
+  main._vsHandler = _vsThrottle(_vsRender, 150);
   main.addEventListener('scroll', main._vsHandler, { passive: true });
 
   return true;
