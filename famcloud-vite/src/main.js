@@ -107,7 +107,8 @@ window.fetch = async (url, opts={}) => {
   let timeoutId;
   const isUpload = opts.method === 'PUT' || opts.method === 'POST';
   const isAborted = opts.signal;
-  if (!isUpload && !isAborted && typeof url === 'string' && url.includes(PROXY)) {
+  const isStream = typeof url === 'string' && url.includes('/famcloud/stream');
+  if (!isUpload && !isAborted && !isStream && typeof url === 'string' && url.includes(PROXY)) {
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), 25000);
     opts = { ...opts, signal: controller.signal };
@@ -3815,7 +3816,23 @@ function pdfNav(d) { renderPdfPage(S.pdfPageN + d); }
 function closePdf() { document.getElementById('pdf-ov').classList.remove('show'); S.pdfDoc = null; }
 
 // ─── MEDIA (video/audio) ──────────────────────────────────────────────────────
+// Referência ao player activo — só um de cada vez
+let _activeMediaOverlay = null;
+
 function openMedia(p, nm) {
+  // Fechar player anterior se existir
+  if (_activeMediaOverlay) {
+    const prev = _activeMediaOverlay;
+    _activeMediaOverlay = null;
+    const prevMedia = prev.querySelector('video, audio');
+    if (prevMedia) {
+      prevMedia.pause();
+      prevMedia.removeAttribute('src');
+      prevMedia.load();
+    }
+    prev.remove();
+  }
+
   const item = S.lastItems?.find(it => it.path === p);
   if (item) Recents.add(item);
   const ext = ex(nm);
@@ -3864,6 +3881,7 @@ function openMedia(p, nm) {
     mediaEl.removeAttribute('src');
     mediaEl.load();
     if (mediaEl._blobUrl) { URL.revokeObjectURL(mediaEl._blobUrl); mediaEl._blobUrl = null; }
+    if (_activeMediaOverlay === overlay) _activeMediaOverlay = null;
     overlay.remove();
     document.removeEventListener('keydown', escHandler);
   };
@@ -3876,13 +3894,16 @@ function openMedia(p, nm) {
   overlay.appendChild(btns);
   overlay.onclick = (e) => { if (e.target === overlay) closeBtn.click(); };
   document.body.appendChild(overlay);
+  _activeMediaOverlay = overlay; // registar como activo
 
   // Keyboard
   const escHandler = (e) => { if (e.key === 'Escape') closeBtn.click(); };
   document.addEventListener('keydown', escHandler);
 
   // Carregar o vídeo
-  const swAvailable = isVideo && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+  // Se há upload activo, não usar SW stream (evita competição por conexões HTTP)
+  const hasActiveUpload = UPQ.jobs.some(j => j.status === 'run');
+  const swAvailable = isVideo && !hasActiveUpload && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
 
   if (swAvailable) {
     // Streaming via SW — sem download completo, seek nativo
