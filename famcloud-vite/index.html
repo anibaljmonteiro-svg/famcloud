@@ -1482,6 +1482,35 @@ body {
      JAVASCRIPT — COMPLETE
 ═══════════════════════════════════════ -->
 <link rel="stylesheet" href="./src/styles/main.css">
+<script>
+// Wrapper para funções chamadas por onclick antes do módulo ES carregar
+// O módulo type="module" é sempre defer — pode não estar pronto no click
+window._pending = {};
+['doLogin','doLogout','toggleDrop','closeDrop','goHome','goBack','toggleSB','openSearch',
+ 'closeSearch','switchTab','openProfile','openPassM','installPWA','openTrash','openActivity',
+ 'openQuota','openStorageStats','loadWeather','calNav','submitNewEvent','newNote','saveNote',
+ 'deleteNote','notesBack','emptyTrash','toggleFab','closeFab','cancelUpload',
+ 'selAll','bulkDelete','bulkDownload','bulkMoveOpen','clearSel',
+ 'setV','setSort','toggleSortDir','createFolder','doRename','doMove','startSlideshow',
+ 'startSlideshowFromFolder','closeSlideshow','ssPause','ssSpeed','ssInfo','ssNext',
+ 'closeGallery','closePdf','pdfNav','copyShareLink','createShare',
+ 'schedSearch','srClick','calDayClick','filterNotes','openNote',
+ 'showM','hideM','showRecents'
+].forEach(fn => {
+  window[fn] = function() {
+    const args = arguments;
+    if (typeof window['_fc_'+fn] === 'function') return window['_fc_'+fn](...args);
+    // Módulo ainda não carregou — aguarda até 3s
+    let attempts = 0;
+    const t = setInterval(() => {
+      if (typeof window['_fc_'+fn] === 'function') {
+        clearInterval(t);
+        window['_fc_'+fn](...args);
+      } else if (++attempts > 30) clearInterval(t);
+    }, 100);
+  };
+});
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

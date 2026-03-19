@@ -1628,6 +1628,8 @@ function tEnd() { /* desactivado */ }
 // Swipe to delete in list view
 function addSwipeListeners() {
   document.querySelectorAll('.lr').forEach(el => {
+    if (el._swipeAdded) return; // evita duplicar listeners
+    el._swipeAdded = true;
     let sx = 0, dx = 0;
     el.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, {passive:true});
     el.addEventListener('touchmove', e => {
@@ -1823,7 +1825,12 @@ dzEl.addEventListener('drop', async e => {
 }); // DOMContentLoaded for dzEl
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-function navTo(p) { S.hist.push(S.path); loadFiles(p); }
+function navTo(p) {
+  S.hist.push(S.path);
+  loadFiles(p);
+  // Fecha sidebar no mobile ao navegar
+  if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
+}
 function openDir(p) {
   S.hist.push(S.path); loadFiles(p.endsWith('/') ? p : p+'/');
   // Fecha sidebar ao navegar no mobile
@@ -5552,47 +5559,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 
-// ── PULL-TO-REFRESH ──────────────────────────────────────────────────────────
-(function() {
-  let startY = 0, pulling = false, ptr = null;
-  function getMain() { return document.querySelector('.main'); }
-
-  document.addEventListener('touchstart', e => {
-    const main = getMain();
-    if (!main || main.scrollTop > 0) return;
-    startY = e.touches[0].clientY;
-    pulling = true;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', e => {
-    if (!pulling) return;
-    const main = getMain();
-    if (!main || main.scrollTop > 0) { pulling = false; return; }
-    const dy = e.touches[0].clientY - startY;
-    if (dy < 20) return;
-    if (!ptr) {
-      ptr = document.createElement('div');
-      ptr.id = 'ptr-indicator';
-      ptr.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;padding:6px 16px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;pointer-events:none;transition:opacity .2s;';
-      document.body.appendChild(ptr);
-    }
-    ptr.textContent = dy > 70 ? '↑ Soltar para actualizar' : '↓ Puxar para actualizar';
-    ptr.style.opacity = Math.min(1, dy / 70);
-  }, { passive: true });
-
-  document.addEventListener('touchend', e => {
-    if (!pulling || !ptr) { pulling = false; return; }
-    const dy = e.changedTouches[0].clientY - startY;
-    pulling = false;
-    if (dy > 70) {
-      ptr.textContent = '🔄 A actualizar...';
-      if (navigator.vibrate) navigator.vibrate(30);
-      loadFiles(S.path);
-      loadStorage();
-    }
-    setTimeout(() => { if (ptr) { ptr.remove(); ptr = null; } }, 600);
-  }, { passive: true });
-})();
+// Pull-to-refresh removido — conflituava com scroll nativo no mobile
+// O badge "↑ Actualizado" já serve o mesmo propósito sem conflito
 
 
 
@@ -5603,6 +5571,11 @@ function webShareCurrentFile() {
   if (!S.galleryItems || S.galleryIdx === undefined) return;
   const item = S.galleryItems[S.galleryIdx];
   if (item) webShareFile(item.path, item.name);
+}
+
+// Regista aliases _fc_ para o wrapper HTML
+function _registerFcFunctions(fns) {
+  Object.keys(fns).forEach(k => { window['_fc_' + k] = fns[k]; });
 }
 
 Object.assign(globalThis, {
@@ -5796,3 +5769,5 @@ Object.assign(globalThis, {
   UQ,
   THEMES,
 });
+// Registar todos os aliases _fc_ para o wrapper HTML
+_registerFcFunctions(globalThis);
