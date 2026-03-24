@@ -125,7 +125,10 @@ window.fetch = async (url, opts={}) => {
     const saved = localStorage.getItem('fc_cred');
     if (saved) {
       try {
-        let d; try { d = JSON.parse(saved); } catch(e) { d = JSON.parse(deobfuscate(saved)); }
+        let d;
+        try { d = JSON.parse(saved); } catch(_) { d = JSON.parse(deobfuscate(saved)); }
+        // Valida schema — evita crash se localStorage corrompido
+        if (!d || typeof d.user !== 'string' || typeof d.pass !== 'string') throw new Error('schema inválido');
         S.user = d.user; S.pass = d.pass;
         // Retry o pedido original uma vez
         const r2 = await _origFetch(url, {
@@ -145,7 +148,10 @@ window.fetch = async (url, opts={}) => {
 const NC = 'https://nx91769.your-storageshare.de';
 // Encoding seguro para nomes de ficheiros portugueses (acentos, espaços, etc.)
 const safeName = n => encodeURIComponent(n).replace(/%20/g,' ');
-const isMobile = () => window.innerWidth <= 700 || 'ontouchstart' in window;
+// isMobile memoizado — recalcula só em resize, não em cada render
+let _isMobileCache = window.innerWidth <= 700 || 'ontouchstart' in window;
+window.addEventListener('resize', () => { _isMobileCache = window.innerWidth <= 700 || 'ontouchstart' in window; }, { passive: true });
+const isMobile = () => _isMobileCache;
 
 // ── MOVE com gestão de duplicados ───────────────────────────────────────────
 // Retorna: 'ok' | 'skip' | 'error'
@@ -221,6 +227,14 @@ const _IMG_CONCURRENCY = 3;
 // Cleanup automático do cache de imagens quando excede o limite
 // Blobs activos — não revogar enquanto estão em uso
 const _activeBlobUrls = new Set();
+// AbortController global para thumbnails — cancelado ao navegar
+let _imgAbortCtrl = new AbortController();
+function _cancelPendingThumbs() {
+  _imgAbortCtrl.abort();
+  _imgAbortCtrl = new AbortController();
+  _imgQueue.length = 0;
+  _imgActive = 0;
+}
 
 function _imgCacheCleanup() {
   if (_imgCache.size <= _IMG_CACHE_MAX) return;
@@ -282,7 +296,9 @@ async function authImg(el, url, fallbackUrl) {
   if (_imgCache.has(cacheKey)) { el.src = _imgCache.get(cacheKey); return; }
   await _imgThrottle(async () => {
   try {
-    const r = await fetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow' });
+    const signal = _imgAbortCtrl.signal;
+    if (signal.aborted) return;
+    const r = await fetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow', signal });
     if (r.ok) {
       const blob = await r.blob();
       if (blob.type.startsWith('image/') && blob.size > 100) {
@@ -310,7 +326,7 @@ async function authImg(el, url, fallbackUrl) {
         }
       }
     }
-  } catch(e) { /* silencioso — mostra ícone genérico */ }
+  } catch(e) { if (e.name !== 'AbortError') { /* silencioso — mostra ícone genérico */ } }
   }); // _imgThrottle
 }
 
@@ -578,7 +594,8 @@ function initApp() {
     if (unTop) unTop.textContent = savedDN;
     if (dropNm) dropNm.textContent = savedDN;
   }
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+  // Mostra botão câmara em iOS e Android — ambos suportam capture="environment"
+  if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
     document.getElementById('cam-btn').style.display = 'flex';
   }
   if (!S.sidebarOpen) document.getElementById('sb').classList.add('closed');
@@ -600,15 +617,47 @@ function initApp() {
 }
 
 function doLogout() {
+  // ── Cancela todos os processos em curso antes de limpar o estado ──
+  // Timers
+  clearTimeout(_loadDebounceTimer); _loadDebounceTimer = null;
+  // PROPFIND em curso
+  if (S.loadAbort)  { S.loadAbort.abort();  S.loadAbort  = null; }
+  if (_bgAbort)     { _bgAbort.abort();      _bgAbort     = null; }
+  // Upload XHR
+  if (S.uploadXHR)  { S.uploadXHR.abort();  S.uploadXHR  = null; }
+  S.uploadCancel = true;
+  // Slideshow
+  if (SS.interval)   { clearInterval(SS.interval); SS.interval = null; }
+  if (SS.fetchAbort) { SS.fetchAbort.abort(); SS.fetchAbort = null; }
+  const ssVid = document.getElementById('ss-vid');
+  if (ssVid) { ssVid.pause(); ssVid.src = ''; }
+  // LazyObserver — limpa todas as referências a imgs antigas
+  try { _lazyObserver.disconnect(); } catch(_) {}
+  // Media overlay activo
+  if (_activeMediaOverlay) {
+    try { _activeMediaOverlay.remove(); } catch(_) {}
+    _activeMediaOverlay = null;
+  }
+  // Limpa cache de imagens em memória (blob URLs)
+  _imgCache.clear();
+  _imgQueue.length = 0;
+  // Cancela upload queue
+  UPQ.jobs = [];
+
+  // ── Limpa estado ──
   sessionStorage.clear();
   localStorage.removeItem('fc_cred');
+  localStorage.removeItem('fc_cred_enc');
   S.user=''; S.pass=''; S.server=''; S.path='/'; S.hist=[];
   S.selected.clear(); S.selecting=false; S.lastItems=[];
+  S._pendingRefresh = null;
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   document.getElementById('pwd').value = '';
   document.getElementById('lerr').style.display = 'none';
   document.getElementById('uav').innerHTML = '<span id="uav-l"></span>';
+  // Remove badge de refresh se existir
+  document.getElementById('refresh-badge')?.remove();
   calLoaded = false; notesLoaded = false; wxLoaded = false;
   if(typeof switchTab==='function') switchTab('files');
 }
@@ -1031,6 +1080,8 @@ function loadFilesDebounced(p, delay = 300) {
 async function loadFiles(p) {
   // Cancela qualquer refresh em background da pasta anterior
   if (_bgAbort) { _bgAbort.abort(); _bgAbort = null; }
+  // Cancela thumbnails pendentes da pasta anterior
+  _cancelPendingThumbs();
   pageLoaderStart();
   const fl = document.getElementById('fl');
 
@@ -1729,7 +1780,7 @@ async function handleDrop(destPath) {
     if (result.status === 'ok') {
       const msg = result.renamed ? `"${srcNm}" renomeado para "${result.name}" e movido.` : `"${srcNm}" movido para "${destFolderNm}"!`;
       toast(msg, 'ok');
-      loadFilesDebounced(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
+      loadFilesDebounced(S.path); loadStorage();
     } else if (result.status === 'duplicate') {
       // Pergunta o que fazer
       const choice = confirm(`"${srcNm}" já existe em "${destFolderNm}".\n\nOK = Substituir\nCancelar = Manter os dois (renomeia automaticamente)`);
@@ -1737,7 +1788,7 @@ async function handleDrop(destPath) {
       if (result2.status === 'ok') {
         const msg = result2.renamed ? `"${srcNm}" guardado como "${result2.name}".` : `"${srcNm}" substituído em "${destFolderNm}".`;
         toast(msg, 'ok');
-        loadFilesDebounced(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
+        loadFilesDebounced(S.path); loadStorage();
       } else {
         toast(`Erro ao mover "${srcNm}" (${result2.code})`, 'err');
       }
@@ -3076,7 +3127,10 @@ const UPQ = {
     if(job.errors&&okCount===0) toast(`❌ ${job.errors} ficheiros falharam.`,'err');
     else if(job.errors) toast(`⚠️ ${okCount} carregados, ${job.errors} falharam.`,'err');
     else toast(`✅ ${okCount} ficheiro${okCount>1?'s':''} carregado${okCount>1?'s':''}!`,'ok');
-    loadFilesDebounced(S.path); loadStorage(); setTimeout(()=>loadTree('/'),600);
+    loadFilesDebounced(S.path); loadStorage();
+    // Recarrega árvore só se o upload criou subpastas (folder upload com webkitRelativePath)
+    const hadSubfolders = job.files.some(f => f.webkitRelativePath && f.webkitRelativePath.includes('/'));
+    if (hadSubfolders) setTimeout(()=>loadTree('/'),600);
   }
 };
 
@@ -3315,7 +3369,7 @@ async function createFolder() {
     if (r.ok || r.status===201) {
       toast('Pasta "'+n+'" criada!', 'ok'); hideM('folder');
       document.getElementById('fi').value = '';
-      loadFiles(S.path); setTimeout(() => loadTree('/'), 500);
+      loadFiles(S.path); setTimeout(() => loadTree('/'), 400); // necessário: criou nova pasta
     } else toast('Erro ao criar pasta (' + r.status + ')', 'err');
   } catch(e) { toast('Erro ao criar pasta', 'err'); }
 }
@@ -3384,7 +3438,7 @@ async function doMove() {
   else if (errors) toast(`⚠️ ${moved} movido${moved>1?'s':''}, ${errors} com erro.`, 'err');
   else toast(`✅ ${moved} item${moved>1?'ns':''} movido${moved>1?'s':''} para "${destNm}"!`, 'ok');
 
-  hideM('move'); clearSel(); loadFilesDebounced(S.path); loadStorage(); setTimeout(() => loadTree('/'), 500);
+  hideM('move'); clearSel(); loadFilesDebounced(S.path); loadStorage();
 }
 
 // ─── GALLERY ──────────────────────────────────────────────────────────────────
@@ -3764,9 +3818,8 @@ function closeSlideshow() {
   if (SS.fetchAbort) { SS.fetchAbort.abort(); SS.fetchAbort = null; }
   const vid = document.getElementById('ss-vid');
   if (vid) { vid.pause(); if (vid.src && vid.src.startsWith('blob:')) { URL.revokeObjectURL(vid.src); } vid.src = ''; }
-  // Esconde loader
-  const loader = document.getElementById('ss-loader');
-  if (loader) loader.style.display = 'none';
+  // Limpa todos os loaders — mesmo os criados durante _ssVideoFallback
+  document.querySelectorAll('#ss-loader').forEach(el => el.remove());
   document.getElementById('slideshow-ov').classList.remove('show');
   if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
   else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
@@ -4177,7 +4230,7 @@ async function createShare() {
       throw new Error(code === '403' ? 'Sem permissão' : 'Erro ' + code);
     }
 
-    const shareUrl = url || `https://nx91769.your-storageshare.de/index.php/s/${token}`;
+    const shareUrl = url || `${NC}/index.php/s/${token}`;
     const expiryTxt = _shareExpiry
       ? `Expira em ${new Date(_shareExpiry).toLocaleDateString('pt-PT')}`
       : 'Sem expiração';
@@ -4228,7 +4281,7 @@ async function _loadExistingShares(path) {
       </div>
       ${shares.map(s => {
         const token = s.querySelector('token')?.textContent || '';
-        const url = s.querySelector('url')?.textContent || `https://nx91769.your-storageshare.de/index.php/s/${token}`;
+        const url = s.querySelector('url')?.textContent || `${NC}/index.php/s/${token}`;
         const exp = s.querySelector('expiration')?.textContent;
         const hasPass = s.querySelector('share_with')?.textContent;
         const expTxt = exp ? `⏰ ${new Date(exp).toLocaleDateString('pt-PT')}` : '∞ Sem limite';
@@ -4629,7 +4682,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ══════════════════════════════════════════════════════════════
 // TAB NAVIGATION
 // ══════════════════════════════════════════════════════════════
-const TABS = ['files','calendar','notes','weather'];
+const TABS = ['files','recents','calendar','notes','weather'];
 let currentTab = 'files';
 let calLoaded = false, notesLoaded = false, wxLoaded = false;
 
@@ -4639,6 +4692,33 @@ function switchTab(tab) {
     document.getElementById('sec-'+t)?.classList.toggle('active', t===tab);
     document.getElementById('bnt-'+t)?.classList.toggle('active', t===tab);
   });
+  if (tab==='recents') {
+    // Renderiza no contentor correcto
+    const rl = document.getElementById('recents-list');
+    if (rl) {
+      const items = Recents.get();
+      if (!items.length) {
+        rl.innerHTML = '<div class="empty"><div class="ei">🕐</div><h3>Sem recentes</h3><p>Os ficheiros que abrires aparecem aqui.</p></div>';
+      } else {
+        S.lastItems = items.map(r => ({
+          name:r.name, path:r.path, isDir:r.isDir,
+          size:r.size||0,
+          dateStr: r.accessedAt ? new Date(r.accessedAt).toLocaleDateString('pt-PT') : '',
+          fileid:r.fileid||''
+        }));
+        // Renderiza directamente no recents-list
+        const prev = S.view;
+        const prevFl = document.getElementById('fl');
+        const tempFl = rl;
+        rl.innerHTML = (S.view==='grid')
+          ? '<div class="fgrid">' + S.lastItems.map(card).join('') + '</div>'
+          : '<div class="flist"><div class="lh"><span>Nome</span><span>Tamanho</span><span class="cd">Acedido</span><span>Ações</span></div>' + S.lastItems.map(row).join('') + '</div>';
+        requestAnimationFrame(() => {
+          rl.querySelectorAll('img[data-src]').forEach(img => _lazyObserver.observe(img));
+        });
+      }
+    }
+  }
   if (tab==='calendar' && !calLoaded) { calLoaded=true; loadCalendar(); }
   if (tab==='notes' && !notesLoaded) { notesLoaded=true; loadNotes(); }
   if (tab==='weather' && !wxLoaded)  { wxLoaded=true; loadWeather(); }
@@ -5607,13 +5687,15 @@ function restoreSession() {
         if (isEncrypted) {
           plaintext = await decryptCred(raw);
         } else {
-          // Legacy — tenta JSON directo ou obfuscação
-          try { plaintext = raw; JSON.parse(raw); }
-          catch(e) { plaintext = deobfuscate(raw); }
+          // Legacy (não encriptado) — força re-login para migrar para AES-GCM
+          // Limpa credenciais antigas sem expor ao utilizador
+          localStorage.removeItem('fc_cred');
+          showLogin();
+          return;
         }
         if (!plaintext) throw new Error('decrypt failed');
         const parsed = JSON.parse(plaintext);
-        if (parsed && parsed.user && parsed.pass) {
+        if (parsed && parsed.user && typeof parsed.user === 'string' && parsed.pass && typeof parsed.pass === 'string') {
           S.server = PROXY; S.user = parsed.user; S.pass = parsed.pass;
           sessionStorage.setItem('fc', raw);
           initApp();
@@ -5733,6 +5815,7 @@ Object.assign(globalThis, {
   skeletonGrid, skeletonList,
   _idb, _idxAdd, _idxSearch,
   _refreshInBackground,
+  _cancelPendingThumbs,
   showCtxMenu, closeCtx,
   prefetchDir, cancelPrefetch, getPrefetched,
   uploadChunked,
