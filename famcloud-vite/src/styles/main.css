@@ -393,12 +393,13 @@ body {
 .dz strong { color:var(--primary); }
 
 /* ── GRID ── */
-.fgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:11px; }
+.fgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:11px; will-change:transform; }
 .fc {
   background:var(--card); border-radius:var(--radius); padding:14px 11px 11px;
   cursor:pointer; transition:all .2s; border:2px solid transparent;
   position:relative; box-shadow:var(--shadow); display:flex; flex-direction:column;
   align-items:center; gap:8px; text-align:center; user-select:none; -webkit-user-select:none;
+  contain:layout style; /* isola layout de cada card — menos recalc em scroll */
 }
 @media(hover:hover){.fc:hover { transform:translateY(-2px); box-shadow:var(--shadow-hover); border-color:var(--primary); }}
 .fc.folder { padding:18px 11px 13px; }

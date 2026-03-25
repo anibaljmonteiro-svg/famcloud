@@ -110,7 +110,7 @@ window.fetch = async (url, opts={}) => {
   const isStream = typeof url === 'string' && url.includes('/famcloud/stream');
   if (!isUpload && !isAborted && !isStream && typeof url === 'string' && url.includes(PROXY)) {
     const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 25000);
+    timeoutId = setTimeout(() => controller.abort(), 15000); // 15s: reduzido de 25s — thumbs que falham ficam menos tempo em fila
     opts = { ...opts, signal: controller.signal };
   }
   let r;
@@ -219,10 +219,10 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 // ─── AUTH IMAGE CACHE ──────────────────────────────────────────────────────
 // <img src=""> não envia Authorization. Carregamos via fetch com auth → blob URL
 // LRU cache para thumbnails — max 150 entradas (evita memory leak em mobile)
-const _IMG_CACHE_MAX = 150;
+const _IMG_CACHE_MAX = 300; // aumentado: 4 utilizadores com pastas grandes
 const _imgCache = new Map();
 // Concorrência limitada — máx 6 fetches de imagem simultâneos
-const _IMG_CONCURRENCY = 3;
+const _IMG_CONCURRENCY = 6; // aumentado de 3: reduz tempo de carregamento ~50%
 
 // Cleanup automático do cache de imagens quando excede o limite
 // Blobs activos — não revogar enquanto estão em uso
@@ -260,7 +260,7 @@ const _lazyObserver = new IntersectionObserver((entries) => {
     }
     _lazyObserver.unobserve(img);
   });
-}, { rootMargin: '400px 0px', threshold: 0.01 });
+}, { rootMargin: '800px 0px', threshold: 0.01 }); // pré-carrega mais cedo — menos 'buracos' em scroll rápido
 let _imgQueue = [], _imgActive = 0;
 function _imgNext() {
   if (_imgActive >= _IMG_CONCURRENCY || !_imgQueue.length) return;
@@ -1520,23 +1520,17 @@ function card(it) {
       // Preview via Nextcloud — sem fallback para ficheiro completo no grid.
       // Se o preview falhar: Worker v5 devolve SVG placeholder (200 image/svg+xml).
       // O download completo só acontece quando o utilizador abre a galeria.
-      const tUrl = thumbUrl(fileid, 300);
+      const tUrl = thumbUrl(fileid, 200); // 200px suficiente para cards de 148px (retina 2x)
       inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
     } else {
       // Sem fileid: ícone imediato, sem pedido de rede. Ficheiro completo só na galeria.
       inner = `<div class="fic ic-i">🖼️</div>`;
     }
   } else if (isVid(nm)) {
-    // Usa preview do Nextcloud se tiver fileid, senão ícone
-    if (fileid) {
-      const tUrl = thumbUrl(fileid, 300);
-      inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="" alt=""
-        onload="this.classList.remove('loading');this.classList.add('loaded')"
-        onerror="this.outerHTML='<div class=\'fic ic-v\'>🎬</div>'">`;
+    // StorageShare não tem ffmpeg → /core/preview para vídeos dá 404 sempre
+    // Ícone imediato — zero fetch, zero erros "indisponível" no grid
+    inner = `<div class="fic ic-v">🎬</div>`;
     } else {
-      inner = `<div class="fic ic-v">🎬</div>`;
-    }
-  } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
   // Usa data attributes em vez de onclick — permite minificação pelo Vite
@@ -2767,11 +2761,11 @@ async function coalescedFetch(url, options = {}) {
 // ─── VIRTUAL SCROLLING ───────────────────────────────────────────────────────
 // Para pastas com muitos itens, renderiza apenas o que está visível
 // Threshold: activa para >100 itens (abaixo disso DOM normal é mais simples)
-const VS_THRESHOLD = 500; // Virtual scroll só para pastas muito grandes (desactivado na prática)
-const VS_ITEM_H_GRID = 180;  // altura aproximada de um card na grid
+const VS_THRESHOLD = 80; // activa virtual scroll com 80+ itens — elimina jank em pastas com muitas fotos
+const VS_ITEM_H_GRID = 165;  // altura real dos cards: thumb(86)+texto+padding
 const VS_ITEM_H_LIST = 48;   // altura de uma row na lista
 const VS_COLS_ESTIMATE = 4;  // colunas estimadas (ajusta no resize)
-const VS_BUFFER = 2;
+const VS_BUFFER = 5; // 5 linhas extra — menos buracos em scroll rápido
 
 let _vsState = null; // estado do virtual scroll activo
 
@@ -2803,8 +2797,13 @@ function initVirtualScroll(items, container) {
 }
 
 function _vsThrottle(fn, delay) {
-  let t;
-  return () => { clearTimeout(t); t = setTimeout(fn, delay); };
+  let t, raf;
+  return () => {
+    clearTimeout(t);
+    cancelAnimationFrame(raf);
+    // Usa rAF para sincronizar com o frame do browser — scroll mais suave
+    raf = requestAnimationFrame(() => { t = setTimeout(fn, delay); });
+  };
 }
 
 function _vsRender() {
@@ -4084,7 +4083,12 @@ function openMedia(p, nm) {
   // Carregar o vídeo
   // Se há upload activo, não usar SW stream (evita competição por conexões HTTP)
   const hasActiveUpload = UPQ.jobs.some(j => j.status === 'run');
-  const swAvailable = isVideo && !hasActiveUpload && 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+  // SW disponível: precisa de estar activo E registado (não apenas 'in navigator')
+  // Na primeira visita ou após update do SW, controller é null
+  const swAvailable = isVideo && !hasActiveUpload &&
+    'serviceWorker' in navigator &&
+    navigator.serviceWorker.controller?.state !== 'redundant' &&
+    !!navigator.serviceWorker.controller;
 
   if (swAvailable) {
     // Streaming via SW — sem download completo, seek nativo
