@@ -1194,3 +1194,13 @@ body {
   opacity: 0; transition: opacity .3s; pointer-events: auto;
 }
 #refresh-badge:hover { opacity: 1 !important; }
+
+/* ═══════════════════════════════════════
+   VÍDEO — badge de tamanho no card
+═══════════════════════════════════════ */
+.vid-size-badge {
+  position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.55); color: #fff;
+  font-size: 9px; font-weight: 700; padding: 2px 6px;
+  border-radius: 6px; white-space: nowrap; pointer-events: none;
+}

@@ -229,11 +229,20 @@ const _IMG_CONCURRENCY = 6; // aumentado de 3: reduz tempo de carregamento ~50%
 const _activeBlobUrls = new Set();
 // AbortController global para thumbnails — cancelado ao navegar
 let _imgAbortCtrl = new AbortController();
+// AbortController separado para a galeria — não é cancelado ao navegar entre pastas
+let _galleryAbortCtrl = new AbortController();
+
 function _cancelPendingThumbs() {
   _imgAbortCtrl.abort();
   _imgAbortCtrl = new AbortController();
   _imgQueue.length = 0;
   _imgActive = 0;
+  // Não cancela _galleryAbortCtrl — a galeria pode estar aberta durante navegação
+}
+
+function _cancelGallery() {
+  _galleryAbortCtrl.abort();
+  _galleryAbortCtrl = new AbortController();
 }
 
 function _imgCacheCleanup() {
@@ -290,13 +299,28 @@ function thumbUrl(fileid, size=256) {
   if (!fileid) return null;
   return PROXY + '/nextcloud/index.php/core/preview?fileId=' + fileid + '&x=' + size + '&y=' + size + '&forceIcon=0&a=1';
 }
-async function authImg(el, url, fallbackUrl) {
+async function authImg(el, url, fallbackUrl, externalSignal) {
   if (!url) return;
   const cacheKey = url;
+
+  // 1. Cache em memória (mais rápido — sem IDB)
   if (_imgCache.has(cacheKey)) { el.src = _imgCache.get(cacheKey); return; }
+
+  // 2. Cache persistente (IndexedDB — sobrevive a sessões)
+  const idbCached = await _idbThumb.get(cacheKey);
+  if (idbCached) {
+    try {
+      const blobUrl = b64ToBlobUrl(idbCached);
+      _imgCache.set(cacheKey, blobUrl); // promove para memória
+      el.src = blobUrl;
+      return;
+    } catch(_) { /* b64 corrompido — continua para fetch */ }
+  }
+
   await _imgThrottle(async () => {
   try {
-    const signal = _imgAbortCtrl.signal;
+    // Usa signal externo (galeria) ou o signal global de thumbnails
+    const signal = externalSignal || _imgAbortCtrl.signal;
     if (signal.aborted) return;
     const r = await fetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow', signal });
     if (r.ok) {
@@ -307,8 +331,13 @@ async function authImg(el, url, fallbackUrl) {
         _imgCacheCleanup();
         el.src = objUrl;
         _activeBlobUrls.add(objUrl);
-        el.onload = () => {}; // mantém activo
+        el.onload = () => {};
         el.onerror = () => { _activeBlobUrls.delete(objUrl); };
+        // Guarda no IDB em background (não bloqueia o render)
+        // Só guarda thumbs (URL com /preview ou /core/) — não ficheiros completos
+        if (url.includes('/preview') || url.includes('/core/')) {
+          blobToB64(blob.slice(0, blob.size)).then(b64 => _idbThumb.set(cacheKey, b64)).catch(() => {});
+        }
         return;
       }
     }
@@ -605,7 +634,16 @@ function initApp() {
   renderThemeDots();
   renderThemeGrid();
   loadAvatar();
-  loadFiles('/');
+  // Restaura última pasta visitada (sobrevive a refresh)
+  const _lastPath = (() => {
+    try {
+      const p = localStorage.getItem('fc_last_path');
+      // Valida: começa com '/', não é vazio, não tem '..'
+      if (p && p.startsWith('/') && !p.includes('..')) return p;
+    } catch(_) {}
+    return '/';
+  })();
+  loadFiles(_lastPath);
   loadStorage();
   loadTree('/');
   setupOffline();
@@ -1106,6 +1144,8 @@ async function loadFiles(p) {
     fl.style.opacity = '0.5';
   }
   S.path = p; clearSel(); updateBC(); updateTreeActive();
+  // Guarda pasta actual — sobrevive a refresh/reload
+  try { localStorage.setItem('fc_last_path', p); } catch(_) {}
   document.getElementById('btn-back').style.display = p === '/' ? 'none' : 'flex';
   syncStart('A carregar...');
   // Reset da barra de estado ao mudar de pasta
@@ -1529,7 +1569,8 @@ function card(it) {
   } else if (isVid(nm)) {
     // StorageShare não tem ffmpeg → /core/preview para vídeos dá 404 sempre
     // Ícone imediato — zero fetch, zero erros "indisponível" no grid
-    inner = `<div class="fic ic-v">🎬</div>`;
+    const vidSzLabel = size > 0 ? `<div class="vid-size-badge">${fmtSz(size)}</div>` : '';
+    inner = `<div class="fic ic-v" style="position:relative">🎬${vidSzLabel}</div>`;
     } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
@@ -1954,6 +1995,92 @@ const _idb = (() => {
 
 // TTL do cache — 5 minutos
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+// ─── INDEXEDDB CACHE PARA THUMBNAILS ──────────────────────────────────────────
+// Persiste blob URLs como base64 entre sessões — zero fetches ao servidor nas
+// visitas seguintes para fotos já vistas. Limite: 500 entradas, ~50MB aprox.
+const _idbThumb = (() => {
+  let db = null;
+  const STORE = 'thumbs';
+  const MAX   = 500;
+
+  const open = () => new Promise((res, rej) => {
+    if (db) return res(db);
+    const r = indexedDB.open('fc-thumbs-v1', 1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE)) {
+        const s = d.createObjectStore(STORE, { keyPath: 'url' });
+        s.createIndex('ts', 'ts');
+      }
+    };
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror = () => rej(r.error);
+  });
+
+  return {
+    async get(url) {
+      try {
+        const d = await open();
+        return new Promise(res => {
+          const req = d.transaction(STORE, 'readonly').objectStore(STORE).get(url);
+          req.onsuccess = () => res(req.result?.b64 || null);
+          req.onerror = () => res(null);
+        });
+      } catch(_) { return null; }
+    },
+
+    async set(url, b64) {
+      try {
+        const d = await open();
+        const tx = d.transaction(STORE, 'readwrite');
+        const store = tx.objectStore(STORE);
+        store.put({ url, b64, ts: Date.now() });
+        // Limpa entradas antigas se exceder MAX (async — não bloqueia)
+        const count = await new Promise(res => {
+          const r = store.count(); r.onsuccess = () => res(r.result);
+        });
+        if (count > MAX) {
+          // Remove as 50 mais antigas por timestamp
+          const idx = store.index('ts');
+          let deleted = 0;
+          idx.openCursor().onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor && deleted < 50) { cursor.delete(); deleted++; cursor.continue(); }
+          };
+        }
+      } catch(_) {}
+    },
+
+    async clear() {
+      try {
+        const d = await open();
+        d.transaction(STORE, 'readwrite').objectStore(STORE).clear();
+      } catch(_) {}
+    }
+  };
+})();
+
+// Converte Blob para base64 string
+function blobToB64(blob) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result);
+    reader.onerror = rej;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Converte base64 para Blob URL
+function b64ToBlobUrl(b64) {
+  const parts = b64.split(',');
+  const mime  = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+  const bytes = atob(parts[1]);
+  const arr   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return URL.createObjectURL(new Blob([arr], { type: mime }));
+}
+
+
 
 
 
@@ -3497,7 +3624,7 @@ function renderGallery(dir) {
     brokenEl.style.display = 'flex';
     img.classList.remove('loading-img');
   };
-  img.src = ''; authImg(img, dav(it.path));
+  img.src = ''; authImg(img, dav(it.path), null, _galleryAbortCtrl.signal);
   document.getElementById('gallery-nm').textContent = it.name;
   document.getElementById('gallery-count').textContent = (S.galleryIdx+1) + ' / ' + S.galleryItems.length;
   // strip thumbnails
@@ -3562,6 +3689,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function closeGallery() {
+  _cancelGallery(); // cancela fetches pendentes da galeria
   document.getElementById('gallery-ov').classList.remove('show');
   document.getElementById('gallery-img').src = '';
 }
@@ -3953,7 +4081,11 @@ function openMedia(p, nm) {
   // Loading indicator — criado ANTES de ser usado
   const loadingEl = document.createElement('div');
   loadingEl.style.cssText = 'color:rgba(255,255,255,.7);font-size:13px;text-align:center;min-height:40px;display:flex;align-items:center;justify-content:center';
-  loadingEl.innerHTML = '<div class="spin" style="width:24px;height:24px;border-width:2.5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;margin-right:8px"></div> A carregar...';
+  const fileSzMB = Math.round((S.lastItems?.find(i=>i.path===p)?.size||0)/1024/1024);
+  const loadMsg = fileSzMB > 50
+    ? `<div class="spin" style="width:24px;height:24px;border-width:2.5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;margin-right:8px"></div> A iniciar stream${fileSzMB>0?' ('+fileSzMB+'MB)':''}...`
+    : '<div class="spin" style="width:24px;height:24px;border-width:2.5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;margin-right:8px"></div> A carregar...';
+  loadingEl.innerHTML = loadMsg;
 
   // ── CONTROLOS CUSTOMIZADOS ──────────────────────────────────
   const controls = document.createElement('div');
@@ -5820,6 +5952,8 @@ Object.assign(globalThis, {
   _idb, _idxAdd, _idxSearch,
   _refreshInBackground,
   _cancelPendingThumbs,
+  _cancelGallery,
+  _idbThumb,
   showCtxMenu, closeCtx,
   prefetchDir, cancelPrefetch, getPrefetched,
   uploadChunked,
