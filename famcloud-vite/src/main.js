@@ -1136,8 +1136,11 @@ async function loadFiles(p) {
     pageLoaderDone();
     syncDone(cached.items.length);
     _idxAdd(cached.items, p);
-    // Actualiza sempre em background — mostra dados frescos silenciosamente
-    _refreshInBackground(p);
+    // Background refresh só se o cache estiver stale
+    // Pasta de fotos visitada há 5min → não vai ao servidor (já vimos, não mudou)
+    if (!_idb.isFresh(cached)) {
+      _refreshInBackground(p);
+    }
     return;
   }
 
@@ -1538,6 +1541,22 @@ function renderFiles(items) {
       if (img.dataset.src) _lazyObserver.observe(img);
     });
   });
+
+  // Prefetch mobile: pré-carrega as primeiras pastas visíveis no IDB
+  // No desktop isto é feito ao hover; no mobile precisamos de fazer proactivamente
+  // Só prefetch se mobile E pasta não está já em cache fresco
+  if (_isMobileCache) {
+    const dirs = items.filter(it => it.isDir).slice(0, 3);
+    dirs.forEach(dir => {
+      // Delay escalonado: 1s, 2s, 3s — não saturar a ligação
+      const delay = (dirs.indexOf(dir) + 1) * 1000;
+      setTimeout(async () => {
+        const existing = await _idb.get(dir.path);
+        if (_idb.isFresh(existing)) return; // já temos cache fresco
+        prefetchDir(dir.path);
+      }, delay);
+    });
+  }
   // Mostra botão slideshow se há imagens
   const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
@@ -1907,10 +1926,28 @@ function navTo(p) {
   // Fecha sidebar no mobile ao navegar
   if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
 }
-function openDir(p) {
-  S.hist.push(S.path); loadFiles(p.endsWith('/') ? p : p+'/');
+async function openDir(p) {
+  const target = p.endsWith('/') ? p : p+'/';
+  S.hist.push(S.path);
   // Fecha sidebar ao navegar no mobile
   if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
+  // Se temos cache fresco desta pasta → mostra instantaneamente sem loader
+  const cached = await _idb.get(target);
+  if (_idb.isFresh(cached) && cached.items?.length) {
+    // Navegação instantânea — zero pedidos ao servidor
+    S.path = target;
+    S.lastItems = cached.items;
+    clearSel(); updateBC(); updateTreeActive();
+    document.getElementById('btn-back').style.display = 'flex';
+    try { localStorage.setItem('fc_last_path', target); } catch(_) {}
+    renderFiles(cached.items);
+    syncDone(cached.items.length);
+    _idxAdd(cached.items, target);
+    _cancelPendingThumbs();
+    return;
+  }
+  // Sem cache fresco → carregamento normal
+  loadFiles(target);
 }
 function goBack() { if (S.hist.length) loadFiles(S.hist.pop()); }
 function goHome() { S.hist = []; loadFiles('/'); }
@@ -1978,6 +2015,18 @@ const _idb = (() => {
           req.onerror = () => res(null);
         });
       } catch(e) { return null; }
+    },
+
+    // Verifica se o cache é suficientemente fresco para não precisar de background refresh
+    // TTL adaptativo: pastas com muitos itens = menos refrescadas (mais estáveis)
+    isFresh(cached) {
+      if (!cached || !cached.ts) return false;
+      const age = Date.now() - cached.ts;
+      const count = cached.items?.length || 0;
+      // Pastas grandes (fotos) → TTL 20 min (raramente mudam)
+      // Pastas pequenas (documentos) → TTL 5 min
+      const ttl = count > 50 ? 20 * 60 * 1000 : 5 * 60 * 1000;
+      return age < ttl;
     },
     async set(path, items) {
       try {
@@ -2312,6 +2361,25 @@ function prefetchDir(path) {
       if (r.ok) {
         const txt = await r.text();
         _prefetchCache.set(path, txt);
+        // Guarda também no IDB para persistir entre sessões
+        try {
+          const xml = new DOMParser().parseFromString(txt, 'text/xml');
+          const items = [];
+          xml.querySelectorAll('response').forEach(resp => {
+            const rel = normPath(decodeURIComponent(resp.querySelector('href')?.textContent || ''));
+            if (!rel || normPath(rel) === normPath(path)) return;
+            const isDir = resp.querySelector('resourcetype collection') !== null;
+            const nm = resp.querySelector('displayname')?.textContent || rel.split('/').filter(Boolean).pop() || '';
+            if (!nm || nm.startsWith('.') || HIDDEN.includes(nm)) return;
+            const size = parseInt(resp.querySelector('getcontentlength')?.textContent || '0') || 0;
+            const mod  = resp.querySelector('getlastmodified')?.textContent || '';
+            const date = mod ? new Date(mod) : new Date(0);
+            const fpath = isDir ? (rel.endsWith('/') ? rel : rel+'/') : rel;
+            const fileid = resp.querySelector('fileid')?.textContent || '';
+            items.push({ name:nm, path:fpath, isDir, size, date, dateStr:fmtDate(date), fileid });
+          });
+          if (items.length) _idb.set(path, items);
+        } catch(_) {}
       }
     } catch(e) {}
   }, 300); // só pre-fetch se hover durar 300ms
@@ -3740,7 +3808,20 @@ async function generateVideoThumb(el, path) {
 function startSlideshowFromFolder() {
   SS.items = S.lastItems.filter(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   if (!SS.items.length) { toast('Sem fotos ou vídeos nesta pasta.', 'err'); return; }
-  SS.idx = 0; SS.paused = false;
+  SS.paused = false;
+  // Restaura posição anterior se for a mesma pasta e recente (< 1 hora)
+  let startIdx = 0;
+  try {
+    const saved = JSON.parse(localStorage.getItem('fc_ss_state') || '{}');
+    const isRecent = saved.ts && (Date.now() - saved.ts) < 60 * 60 * 1000;
+    const isSamePath = saved.path === S.path;
+    if (isRecent && isSamePath && saved.idx > 0 && saved.idx < SS.items.length) {
+      startIdx = saved.idx;
+      if (saved.speed) SS.speed = saved.speed;
+      toast(`▶️ A retomar do slide ${startIdx + 1}/${SS.items.length}`, '');
+    }
+  } catch(_) {}
+  SS.idx = startIdx;
   document.getElementById('slideshow-ov').classList.add('show');
   const el = document.getElementById('slideshow-ov');
   if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
@@ -3766,6 +3847,15 @@ function startSlideshow() {
 function ssShow() {
   const it = SS.items[SS.idx];
   if (!it) return;
+  // Persiste posição do slideshow — retoma de onde ficou
+  try {
+    localStorage.setItem('fc_ss_state', JSON.stringify({
+      path: S.path,
+      idx: SS.idx,
+      speed: SS.speed,
+      ts: Date.now()
+    }));
+  } catch(_) {}
   const img = document.getElementById('ss-img');
   const vid = document.getElementById('ss-vid');
   SS.isVideo = isVid(it.name);
