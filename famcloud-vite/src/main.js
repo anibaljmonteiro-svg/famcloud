@@ -105,12 +105,14 @@ const _origFetch = window.fetch.bind(window);
 window.fetch = async (url, opts={}) => {
   // Timeout de 25s em pedidos ao proxy (não em uploads — esses têm o seu próprio controlo)
   let timeoutId;
-  const isUpload = opts.method === 'PUT' || opts.method === 'POST';
-  const isAborted = opts.signal;
-  const isStream = typeof url === 'string' && url.includes('/famcloud/stream');
-  if (!isUpload && !isAborted && !isStream && typeof url === 'string' && url.includes(PROXY)) {
+  const isUpload   = opts.method === 'PUT' || opts.method === 'POST';
+  const isAborted  = opts.signal;
+  const isStream   = typeof url === 'string' && url.includes('/famcloud/stream');
+  // Downloads explícitos marcados com X-FC-Download — sem timeout (ficheiros grandes)
+  const isDownload = opts.headers?.['X-FC-Download'] === '1';
+  if (!isUpload && !isAborted && !isStream && !isDownload && typeof url === 'string' && url.includes(PROXY)) {
     const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 15000); // 15s: reduzido de 25s — thumbs que falham ficam menos tempo em fila
+    timeoutId = setTimeout(() => controller.abort(), 15000);
     opts = { ...opts, signal: controller.signal };
   }
   let r;
@@ -322,7 +324,9 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
     // Usa signal externo (galeria) ou o signal global de thumbnails
     const signal = externalSignal || _imgAbortCtrl.signal;
     if (signal.aborted) return;
-    const r = await fetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow', signal });
+    // Usa _origFetch para thumbnails — sem timeout global (estão na fila com concorrência limitada)
+    // O timeout do wrapper seria aplicado ao tempo total na fila, não ao fetch em si
+    const r = await _origFetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow', signal });
     if (r.ok) {
       const blob = await r.blob();
       if (blob.type.startsWith('image/') && blob.size > 100) {
@@ -344,7 +348,7 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
     // Falhou thumbnail — tenta o ficheiro completo como fallback
     if (fallbackUrl && fallbackUrl !== url) {
       if (_imgCache.has(fallbackUrl)) { el.src = _imgCache.get(fallbackUrl); return; }
-      const r2 = await fetch(fallbackUrl, { headers: { 'Authorization': auth() } });
+      const r2 = await _origFetch(fallbackUrl, { headers: { 'Authorization': auth() }, signal });
       if (r2.ok) {
         const blob2 = await r2.blob();
         if (blob2.type.startsWith('image/')) {
@@ -1455,7 +1459,7 @@ function renderFiles(items) {
   fl._delegateTouchMove = (e) => {
     const dx = Math.abs(e.touches[0].clientX - _touchStartX);
     const dy = Math.abs(e.touches[0].clientY - _touchStartY);
-    if (dx > 6 || dy > 6) {
+    if (dx > 12 || dy > 12) {  // 12px: menos sensível, reduz falsos positivos de scroll
       _didScroll = true;
       clearTimeout(_touchTimer);
     }
@@ -1463,10 +1467,16 @@ function renderFiles(items) {
 
   fl._delegateTouchEnd = (e) => {
     clearTimeout(_touchTimer);
+    // Reseta _didScroll após breve delay — permite que o click seja processado
+    // mas ignora clicks que vieram imediatamente após scroll
+    if (_didScroll) {
+      setTimeout(() => { _didScroll = false; }, 120);
+    }
   };
 
   fl._safeClick = (e) => {
-    if (_didScroll) { _didScroll = false; return; }
+    // Ignora click que veio de scroll (mas já resetou após 120ms)
+    if (_didScroll) { return; }
     fl._delegateHandler(e);
   };
 
@@ -3302,7 +3312,7 @@ async function dlF(p, nm, isDir=false) {
       const ctrl = new AbortController();
       S._zipAbort = ctrl;
       const r = await fetch(zipUrl, {
-        headers: { 'Authorization': auth() },
+        headers: { 'Authorization': auth(), 'X-FC-Download': '1' },
         signal: ctrl.signal
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -3357,7 +3367,7 @@ async function dlF(p, nm, isDir=false) {
   try {
     const ctrl = new AbortController();
     const r = await fetch(dav(p), {
-      headers: { 'Authorization': auth() },
+      headers: { 'Authorization': auth(), 'X-FC-Download': '1' },
       signal: ctrl.signal
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
