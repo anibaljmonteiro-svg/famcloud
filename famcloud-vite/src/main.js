@@ -224,10 +224,23 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 const _IMG_CACHE_MAX = 300; // aumentado: 4 utilizadores com pastas grandes
 const _imgCache = new Map();
 // Concorrência limitada — máx 6 fetches de imagem simultâneos
-const _IMG_CONCURRENCY = 6; // aumentado de 3: reduz tempo de carregamento ~50%
+const _IMG_CONCURRENCY = 6;      // thumbnails do grid
+const _IMG_CONCURRENCY_GAL = 2;  // galeria — fila separada, não bloqueia grid
 
-// Cleanup automático do cache de imagens quando excede o limite
-// Blobs activos — não revogar enquanto estão em uso
+// Filas independentes: galeria não bloqueia thumbnails do grid
+let _galQueue = [], _galActive = 0;
+function _galNext() {
+  if (_galActive >= _IMG_CONCURRENCY_GAL || !_galQueue.length) return;
+  _galActive++;
+  _galQueue.shift()().finally(() => { _galActive--; _galNext(); });
+}
+function _galThrottle(fn) {
+  return new Promise(res => {
+    _galQueue.push(() => fn().then(res, res));
+    _galNext();
+  });
+}
+
 const _activeBlobUrls = new Set();
 // AbortController global para thumbnails — cancelado ao navegar
 let _imgAbortCtrl = new AbortController();
@@ -245,6 +258,9 @@ function _cancelPendingThumbs() {
 function _cancelGallery() {
   _galleryAbortCtrl.abort();
   _galleryAbortCtrl = new AbortController();
+  // Limpa fila dedicada da galeria
+  _galQueue.length = 0;
+  _galActive = 0;
 }
 
 function _imgCacheCleanup() {
@@ -308,33 +324,25 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
   // 1. Cache em memória (mais rápido — sem IDB)
   if (_imgCache.has(cacheKey)) { el.src = _imgCache.get(cacheKey); return; }
 
-  // 2. Cache offline (ficheiros completos — disponível sem ligação)
-  if (url.includes('/remote.php/dav/') && !url.includes('/preview')) {
-    const offlineCached = await _idbOffline.get(cacheKey);
-    if (offlineCached) {
-      try {
-        const blobUrl = b64ToBlobUrl(offlineCached);
-        _imgCache.set(cacheKey, blobUrl);
-        el.src = blobUrl;
-        return;
-      } catch(_) {}
-    }
-  }
-
-  // 3. Cache de thumbnails persistente (IndexedDB — sobrevive a sessões)
-  const idbCached = await _idbThumb.get(cacheKey);
+  // 2. Cache persistente (IndexedDB — com timeout de 150ms)
+  // Se o IDB for lento (desfragmentação, GC), não bloqueia o fetch
+  const idbCached = await Promise.race([
+    _idbThumb.get(cacheKey),
+    new Promise(res => setTimeout(() => res(null), 150))
+  ]);
   if (idbCached) {
     try {
       const blobUrl = b64ToBlobUrl(idbCached);
-      _imgCache.set(cacheKey, blobUrl); // promove para memória
+      _imgCache.set(cacheKey, blobUrl);
       el.src = blobUrl;
       return;
-    } catch(_) { /* b64 corrompido — continua para fetch */ }
+    } catch(_) {}
   }
 
-  await _imgThrottle(async () => {
+  // Galeria usa fila própria (não bloqueia thumbnails do grid)
+  const throttleFn = externalSignal ? _galThrottle : _imgThrottle;
+  await throttleFn(async () => {
   try {
-    // Usa signal externo (galeria) ou o signal global de thumbnails
     const signal = externalSignal || _imgAbortCtrl.signal;
     if (signal.aborted) return;
     // Usa _origFetch para thumbnails — sem timeout global (estão na fila com concorrência limitada)
@@ -351,12 +359,9 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
         el.onload = () => {};
         el.onerror = () => { _activeBlobUrls.delete(objUrl); };
         // Guarda no IDB em background (não bloqueia o render)
+        // Só guarda thumbs (URL com /preview ou /core/) — não ficheiros completos
         if (url.includes('/preview') || url.includes('/core/')) {
-          // Thumbnail → _idbThumb
           blobToB64(blob.slice(0, blob.size)).then(b64 => _idbThumb.set(cacheKey, b64)).catch(() => {});
-        } else if (url.includes('/remote.php/dav/') && blob.size < 8 * 1024 * 1024) {
-          // Ficheiro completo da galeria → _idbOffline (offline parcial)
-          blobToB64(blob).then(b64 => _idbOffline.set(cacheKey, b64, blob.size)).catch(() => {});
         }
         return;
       }
@@ -1455,47 +1460,53 @@ function renderFiles(items) {
     showCtxMenu(e, card.dataset.path, card.dataset.name, card.dataset.dir==='1', card.dataset.fid||'');
   };
 
-  // Touch handling simplificado — deixa o browser gerir o scroll nativamente
-  // Só intercepta long press para selecção múltipla
-  let _touchTimer = null;
-  let _touchStartX = 0, _touchStartY = 0;
-  let _didScroll = false;
+  // ── TOUCH: actua no touchend — sem esperar pelo click event ────────────────
+  // O click em iOS/Android chega 50-300ms DEPOIS do touchend.
+  // _didScroll+120ms falha porque o click chega antes do reset.
+  // Solução: executar a acção directamente no touchend quando não houve scroll.
+  let _tCard = null, _tTimer = null, _tMoved = false;
+  let _tX = 0, _tY = 0;
 
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
+    _tCard  = card || null;
+    _tX     = e.touches[0].clientX;
+    _tY     = e.touches[0].clientY;
+    _tMoved = false;
+    clearTimeout(_tTimer);
     if (!card) return;
-    _touchStartX = e.touches[0].clientX;
-    _touchStartY = e.touches[0].clientY;
-    _didScroll = false;
-    _touchTimer = setTimeout(() => {
-      if (!_didScroll) {
+    // Long press 650ms → selecção múltipla
+    _tTimer = setTimeout(() => {
+      if (!_tMoved) {
+        _tCard = null; // cancela o tap normal
         enterSel(card.dataset.path);
         if (navigator.vibrate) navigator.vibrate(40);
       }
-    }, 700);
+    }, 650);
   };
 
   fl._delegateTouchMove = (e) => {
-    const dx = Math.abs(e.touches[0].clientX - _touchStartX);
-    const dy = Math.abs(e.touches[0].clientY - _touchStartY);
-    if (dx > 12 || dy > 12) {  // 12px: menos sensível, reduz falsos positivos de scroll
-      _didScroll = true;
-      clearTimeout(_touchTimer);
-    }
+    if (_tMoved) return;
+    const dx = Math.abs(e.touches[0].clientX - _tX);
+    const dy = Math.abs(e.touches[0].clientY - _tY);
+    if (dx > 8 || dy > 8) { _tMoved = true; _tCard = null; clearTimeout(_tTimer); }
   };
 
   fl._delegateTouchEnd = (e) => {
-    clearTimeout(_touchTimer);
-    // Reseta _didScroll após breve delay — permite que o click seja processado
-    // mas ignora clicks que vieram imediatamente após scroll
-    if (_didScroll) {
-      setTimeout(() => { _didScroll = false; }, 120);
-    }
+    clearTimeout(_tTimer);
+    const card = _tCard;
+    _tCard = null;
+    if (!card || _tMoved) return;
+    // Tap confirmado — actua agora, sem esperar pelo click
+    e.preventDefault(); // cancela o click sintético do browser (evita dupla execução)
+    const fakeE = { target: e.changedTouches[0].target,
+                    stopPropagation: ()=>{}, preventDefault: ()=>{} };
+    fl._delegateHandler(fakeE);
   };
 
+  // Click apenas para rato (desktop) — touch usa touchend acima
   fl._safeClick = (e) => {
-    // Ignora click que veio de scroll (mas já resetou após 120ms)
-    if (_didScroll) { return; }
+    if (e.pointerType === 'touch') return; // bloqueia clicks sintéticos de touch
     fl._delegateHandler(e);
   };
 
@@ -1503,7 +1514,7 @@ function renderFiles(items) {
   fl.addEventListener('contextmenu', fl._delegateCTX);
   fl.addEventListener('touchstart', fl._delegateTouch, {passive:true});
   fl.addEventListener('touchmove', fl._delegateTouchMove, {passive:true});
-  fl.addEventListener('touchend', fl._delegateTouchEnd, {passive:true});
+  fl.addEventListener('touchend', fl._delegateTouchEnd, {passive:false});
   if (!items.length) {
     fl.innerHTML = '<div class="empty"><div class="ei">📂</div><h3>Pasta vazia</h3><p>Arrasta ficheiros aqui ou clica em "Carregar"</p></div>';
     return;
@@ -2154,263 +2165,6 @@ function b64ToBlobUrl(b64) {
   for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return URL.createObjectURL(new Blob([arr], { type: mime }));
 }
-
-// ─── LEITOR EXIF NATIVO (sem biblioteca externa) ────────────────────────────
-// Lê os metadados mais úteis de JPEGs (data, câmara, GPS, dimensões)
-// Funciona directamente sobre o ArrayBuffer do blob já em memória
-const ExifReader = (() => {
-  // Tags EXIF que nos interessam
-  const TAGS = {
-    0x010F: 'make',       // Fabricante (Apple, Samsung...)
-    0x0110: 'model',      // Modelo (iPhone 13, Galaxy S22...)
-    0x0112: 'orientation',
-    0x9003: 'dateOriginal', // Data de captura original
-    0x9004: 'dateDigitized',
-    0x920A: 'focalLength',
-    0x9207: 'meteringMode',
-    0x829A: 'exposureTime',
-    0x829D: 'fNumber',     // Abertura (f/1.8)
-    0x8827: 'iso',
-    0xA002: 'width',
-    0xA003: 'height',
-    0x8825: 'gps',         // Marcador GPS (precisa de leitura separada)
-  };
-  const GPS_TAGS = {
-    0x01: 'latRef', 0x02: 'lat',
-    0x03: 'lonRef', 0x04: 'lon',
-    0x06: 'altitude',
-  };
-
-  function readUint16(view, offset, le) {
-    return view.getUint16(offset, le);
-  }
-  function readUint32(view, offset, le) {
-    return view.getUint32(offset, le);
-  }
-  function readString(view, offset, len) {
-    let s = '';
-    for (let i = 0; i < len && view.getUint8(offset + i) !== 0; i++)
-      s += String.fromCharCode(view.getUint8(offset + i));
-    return s.trim();
-  }
-  function readRational(view, offset, le) {
-    const num = readUint32(view, offset, le);
-    const den = readUint32(view, offset + 4, le);
-    return den ? num / den : 0;
-  }
-
-  function parseIFD(view, ifdOffset, le, tags, result) {
-    try {
-      const count = readUint16(view, ifdOffset, le);
-      for (let i = 0; i < count; i++) {
-        const entryOffset = ifdOffset + 2 + i * 12;
-        if (entryOffset + 12 > view.byteLength) break;
-        const tag    = readUint16(view, entryOffset, le);
-        const type   = readUint16(view, entryOffset + 2, le);
-        const num    = readUint32(view, entryOffset + 4, le);
-        const valOff = readUint32(view, entryOffset + 8, le);
-
-        const tagName = tags[tag];
-        if (!tagName) continue;
-
-        // Valor inline vs offset
-        let value;
-        try {
-          if (type === 2) { // ASCII
-            const off = num <= 4 ? entryOffset + 8 : valOff;
-            value = readString(view, off, num);
-          } else if (type === 3) { // SHORT
-            value = readUint16(view, entryOffset + 8, le);
-          } else if (type === 4) { // LONG
-            value = valOff;
-          } else if (type === 5) { // RATIONAL
-            value = readRational(view, valOff, le);
-          }
-        } catch(_) {}
-
-        if (value !== undefined) result[tagName] = value;
-
-        // Sub-IFD GPS
-        if (tag === 0x8825 && valOff) {
-          const gps = {};
-          parseIFD(view, valOff, le, GPS_TAGS, gps);
-          if (Object.keys(gps).length) result.gpsRaw = gps;
-        }
-      }
-    } catch(_) {}
-  }
-
-  function dmsToDecimal(dms, ref) {
-    if (!Array.isArray(dms) || dms.length < 3) return null;
-    const decimal = dms[0] + dms[1] / 60 + dms[2] / 3600;
-    return (ref === 'S' || ref === 'W') ? -decimal : decimal;
-  }
-
-  return {
-    async read(blob) {
-      if (!blob || blob.size < 4) return null;
-      try {
-        // Lê só os primeiros 128KB — o EXIF está sempre no início do JPEG
-        const slice = blob.slice(0, Math.min(blob.size, 131072));
-        const buffer = await slice.arrayBuffer();
-        const view = new DataView(buffer);
-
-        // Verificar SOI (JPEG magic bytes)
-        if (view.getUint16(0) !== 0xFFD8) return null;
-
-        // Procurar marcador APP1 (EXIF)
-        let offset = 2;
-        while (offset < view.byteLength - 4) {
-          const marker = view.getUint16(offset);
-          const segLen = view.getUint16(offset + 2);
-          if (marker === 0xFFE1) { // APP1
-            // Verificar "Exif  "
-            if (view.getUint32(offset + 4) === 0x45786966 &&
-                view.getUint16(offset + 8) === 0x0000) {
-              const tiffOffset = offset + 10;
-              const byteOrder  = view.getUint16(tiffOffset);
-              const le = byteOrder === 0x4949; // Little Endian
-              const ifdOffset = tiffOffset + readUint32(view, tiffOffset + 4, le);
-              const result = {};
-              parseIFD(view, ifdOffset, le, TAGS, result);
-
-              // Formatar resultados
-              const out = {};
-              if (result.make)         out.make         = result.make;
-              if (result.model)        out.model        = result.model.replace(result.make || '', '').trim() || result.model;
-              if (result.dateOriginal) out.dateOriginal = result.dateOriginal;
-              if (result.fNumber)      out.aperture     = 'f/' + result.fNumber.toFixed(1);
-              if (result.iso)          out.iso          = 'ISO ' + result.iso;
-              if (result.exposureTime) out.exposure     = result.exposureTime < 1
-                ? '1/' + Math.round(1 / result.exposureTime) + 's'
-                : result.exposureTime.toFixed(1) + 's';
-              if (result.focalLength)  out.focal        = Math.round(result.focalLength) + 'mm';
-              if (result.width && result.height)
-                out.dimensions = result.width + '×' + result.height;
-
-              // GPS
-              if (result.gpsRaw) {
-                const g = result.gpsRaw;
-                // lat/lon são RATIONAL arrays — reconstruir
-                const latArr = [], lonArr = [];
-                for (let i = 0; i < 3; i++) {
-                  if (view.byteLength > g.lat + i * 8)
-                    latArr.push(readRational(view, g.lat + i * 8, le));
-                  if (view.byteLength > g.lon + i * 8)
-                    lonArr.push(readRational(view, g.lon + i * 8, le));
-                }
-                const lat = dmsToDecimal(latArr, g.latRef);
-                const lon = dmsToDecimal(lonArr, g.lonRef);
-                if (lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
-                  out.lat = lat.toFixed(6);
-                  out.lon = lon.toFixed(6);
-                  out.mapsUrl = `https://www.google.com/maps?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
-                }
-              }
-              return Object.keys(out).length ? out : null;
-            }
-          }
-          offset += 2 + segLen;
-          if (segLen < 2) break;
-        }
-      } catch(_) {}
-      return null;
-    }
-  };
-})();
-
-// Cache EXIF em memória (limpa ao fechar galeria)
-const _exifCache = new Map();
-
-// ─── CACHE OFFLINE DE FOTOS COMPLETAS ──────────────────────────────────────
-// Guarda os últimos 40 ficheiros visualizados na galeria
-// Permite ver fotos sem ligação (modo avião, metro, etc.)
-// Limite conservador: 40 fotos × 3MB médio ≈ 120MB no IDB do browser
-const _idbOffline = (() => {
-  let db = null;
-  const STORE = 'photos';
-  const MAX   = 40;       // máximo de fotos em cache
-  const MAX_SIZE = 8 * 1024 * 1024; // não cacheia fotos > 8MB (RAW, etc.)
-
-  const open = () => new Promise((res, rej) => {
-    if (db) return res(db);
-    const r = indexedDB.open('fc-offline-v1', 1);
-    r.onupgradeneeded = e => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains(STORE)) {
-        const s = d.createObjectStore(STORE, { keyPath: 'path' });
-        s.createIndex('ts', 'ts');
-      }
-    };
-    r.onsuccess = e => { db = e.target.result; res(db); };
-    r.onerror = () => rej(r.error);
-  });
-
-  return {
-    async get(path) {
-      try {
-        const d = await open();
-        return new Promise(res => {
-          const req = d.transaction(STORE, 'readwrite').objectStore(STORE).get(path);
-          req.onsuccess = () => {
-            const r = req.result;
-            if (r) {
-              // Actualiza timestamp (LRU)
-              r.ts = Date.now();
-              req.source.put(r);
-              res(r.b64 || null);
-            } else {
-              res(null);
-            }
-          };
-          req.onerror = () => res(null);
-        });
-      } catch(_) { return null; }
-    },
-
-    async set(path, b64, size) {
-      if (!b64 || size > MAX_SIZE) return; // não cacheia ficheiros muito grandes
-      try {
-        const d = await open();
-        const tx = d.transaction(STORE, 'readwrite');
-        const store = tx.objectStore(STORE);
-        store.put({ path, b64, size, ts: Date.now() });
-        // LRU: remove o mais antigo se exceder MAX
-        const count = await new Promise(res => {
-          const r = store.count(); r.onsuccess = () => res(r.result);
-        });
-        if (count > MAX) {
-          const idx = store.index('ts');
-          idx.openCursor().onsuccess = e => {
-            const cursor = e.target.result;
-            if (cursor) { cursor.delete(); } // remove só 1 (o mais antigo)
-          };
-        }
-      } catch(_) {}
-    },
-
-    async clear() {
-      try {
-        const d = await open();
-        d.transaction(STORE, 'readwrite').objectStore(STORE).clear();
-      } catch(_) {}
-    },
-
-    // Lista de paths em cache (para mostrar indicador offline)
-    async list() {
-      try {
-        const d = await open();
-        return new Promise(res => {
-          const req = d.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys();
-          req.onsuccess = () => res(req.result || []);
-          req.onerror = () => res([]);
-        });
-      } catch(_) { return []; }
-    }
-  };
-})();
-
-
 
 
 
@@ -3268,46 +3022,54 @@ function initVirtualScroll(items, container) {
   // Listener de scroll no container pai
   const main = document.getElementById('main');
   if (main._vsHandler) main.removeEventListener('scroll', main._vsHandler);
-  main._vsHandler = _vsThrottle(_vsRender, 150);
+  main._vsHandler = _vsThrottle(_vsRender);
   main.addEventListener('scroll', main._vsHandler, { passive: true });
 
   return true;
 }
 
-function _vsThrottle(fn, delay) {
-  let t, raf;
+function _vsThrottle(fn) {
+  // Apenas rAF — sem setTimeout adicional.
+  // rAF sincroniza com o frame do browser (16ms a 60fps).
+  // Adicionar setTimeout(150ms) causava 166ms de lag visível no scroll.
+  let raf = null;
   return () => {
-    clearTimeout(t);
-    cancelAnimationFrame(raf);
-    // Usa rAF para sincronizar com o frame do browser — scroll mais suave
-    raf = requestAnimationFrame(() => { t = setTimeout(fn, delay); });
+    if (raf) return; // já agendado para este frame
+    raf = requestAnimationFrame(() => { raf = null; fn(); });
   };
 }
 
 function _vsRender() {
   if (!_vsState) return;
-  const { items, cols, itemH, isGrid, container } = _vsState;
+  const { items, cols, itemH, isGrid } = _vsState;
   const main = document.getElementById('main');
   const scrollTop = main.scrollTop;
   const viewH = main.clientHeight;
 
   const startRow = Math.max(0, Math.floor(scrollTop / itemH) - VS_BUFFER);
-  const endRow = Math.min(
+  const endRow   = Math.min(
     Math.ceil(items.length / cols),
     Math.ceil((scrollTop + viewH) / itemH) + VS_BUFFER
   );
-
   const startIdx = startRow * cols;
-  const endIdx = Math.min(items.length, endRow * cols);
+  const endIdx   = Math.min(items.length, endRow * cols);
+
+  // ── DIFF: se o range visível não mudou, não há nada a fazer ──────────────
+  if (_vsState._si === startIdx && _vsState._ei === endIdx) return;
+  _vsState._si = startIdx;
+  _vsState._ei = endIdx;
 
   const topH = startRow * itemH;
   const botH = Math.max(0, (_vsState.totalH - endRow * itemH));
 
-  document.getElementById('vs-spacer-top').style.height = topH + 'px';
-  document.getElementById('vs-spacer-bot').style.height = botH + 'px';
+  const spTop = document.getElementById('vs-spacer-top');
+  const spBot = document.getElementById('vs-spacer-bot');
+  if (spTop) spTop.style.height = topH + 'px';
+  if (spBot) spBot.style.height = botH + 'px';
 
   const visible = items.slice(startIdx, endIdx);
   const content = document.getElementById('vs-content');
+  if (!content) return;
 
   if (isGrid) {
     content.innerHTML = '<div class="fgrid">' + visible.map(card).join('') + '</div>';
@@ -3316,11 +3078,7 @@ function _vsRender() {
       visible.map(row).join('') + '</div>';
   }
 
-  // Lazy load images no novo conteúdo
   content.querySelectorAll('img[data-src]').forEach(img => _lazyObserver.observe(img));
-
-  // Video thumbnails — desactivado (causa ERR_INSUFFICIENT_RESOURCES com muitos vídeos)
-  // Usa preview do Nextcloud quando disponível, senão mostra ícone 🎬
 }
 
 function destroyVirtualScroll() {
@@ -3447,6 +3205,9 @@ const UPQ = {
   add(files, label) {
     const id = ++this._idSeq;
     this.jobs.push({ id, label, files: Array.from(files), status:'wait', done:0, errors:0, total:files.length });
+    // Mostrar painel imediatamente — utilizador sabe que a acção foi registada
+    const prog = document.getElementById('uprog');
+    if (prog) prog.style.display = 'block';
     this._render();
     if (!this._running) this._run();
   },
@@ -3975,25 +3736,9 @@ function renderGallery(dir) {
     brokenEl.style.display = 'flex';
     img.classList.remove('loading-img');
   };
-  // Limpar EXIF anterior
-  const exifBar = document.getElementById('gallery-exif');
-  if (exifBar) exifBar.innerHTML = '';
-
   img.src = ''; authImg(img, dav(it.path), null, _galleryAbortCtrl.signal);
   document.getElementById('gallery-nm').textContent = it.name;
   document.getElementById('gallery-count').textContent = (S.galleryIdx+1) + ' / ' + S.galleryItems.length;
-  // Indicador offline: ✈️ se a foto está em cache para uso offline
-  _idbOffline.get(dav(it.path)).then(cached => {
-    const nm = document.getElementById('gallery-nm');
-    if (nm) {
-      // Remove indicador anterior
-      nm.textContent = it.name;
-      if (cached) nm.textContent = '✈️ ' + it.name;
-    }
-  }).catch(() => {});
-
-  // Ler EXIF após carregar (usa blob já em cache se possível)
-  _showGalleryExif(it);
   // strip thumbnails
   // Usa preview 128px se houver fileid — evita descarregar ficheiros completos
   // (numa pasta com 229 fotos = 229 downloads desnecessários antes desta fix)
@@ -4059,72 +3804,6 @@ function closeGallery() {
   _cancelGallery(); // cancela fetches pendentes da galeria
   document.getElementById('gallery-ov').classList.remove('show');
   document.getElementById('gallery-img').src = '';
-  _exifCache.clear();
-}
-
-async function _showGalleryExif(item) {
-  const bar = document.getElementById('gallery-exif');
-  if (!bar) return;
-
-  // Verificar cache primeiro
-  const cached = _exifCache.get(item.path);
-  if (cached !== undefined) { _renderExifBar(bar, cached); return; }
-
-  // Verificar IDB de thumbnails — se o blob está lá, não precisa de ir à rede
-  const idbKey = dav(item.path);
-  const idbB64 = await _idbThumb.get(idbKey);
-  let blob = null;
-  if (idbB64) {
-    try {
-      const parts = idbB64.split(',');
-      const bytes = atob(parts[1] || '');
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      blob = new Blob([arr], { type: 'image/jpeg' });
-    } catch(_) {}
-  }
-
-  // Se não temos blob, pedir só os primeiros 128KB (Range request)
-  if (!blob) {
-    try {
-      const r = await _origFetch(dav(item.path), {
-        headers: { 'Authorization': auth(), 'Range': 'bytes=0-131071' },
-        signal: _galleryAbortCtrl.signal
-      });
-      if (r.ok || r.status === 206) blob = await r.blob();
-    } catch(_) {}
-  }
-
-  const exif = blob ? await ExifReader.read(blob) : null;
-  _exifCache.set(item.path, exif);
-  _renderExifBar(bar, exif);
-}
-
-function _renderExifBar(bar, exif) {
-  if (!exif || !Object.keys(exif).length) {
-    bar.innerHTML = '';
-    return;
-  }
-
-  const parts = [];
-  // Câmara
-  if (exif.make && exif.model)  parts.push(`📷 ${exif.make} ${exif.model}`);
-  else if (exif.model)          parts.push(`📷 ${exif.model}`);
-  // Data original
-  if (exif.dateOriginal) {
-    const raw = exif.dateOriginal.replace(':', '-').replace(':', '-'); // "2023:06:15 14:30:00"
-    const d   = new Date(raw.replace(' ', 'T'));
-    if (!isNaN(d)) parts.push(`📅 ${d.toLocaleDateString('pt-PT', {day:'2-digit', month:'short', year:'numeric'})} ${d.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'})}`);
-  }
-  // Dimensões
-  if (exif.dimensions) parts.push(`📐 ${exif.dimensions}`);
-  // Técnico (agrupado)
-  const tech = [exif.aperture, exif.exposure, exif.iso, exif.focal].filter(Boolean);
-  if (tech.length) parts.push(tech.join(' · '));
-  // GPS — clicável
-  if (exif.mapsUrl) parts.push(`<a href="${exif.mapsUrl}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">📍 Ver no mapa</a>`);
-
-  bar.innerHTML = parts.map(p => `<span class="exif-item">${p}</span>`).join('');
 }
 
 // ─── SLIDESHOW ────────────────────────────────────────────────────────────────
@@ -6409,9 +6088,8 @@ Object.assign(globalThis, {
   _cancelPendingThumbs,
   _cancelGallery,
   _idbThumb,
-  _showGalleryExif,
-  _renderExifBar,
-  _idbOffline,
+  _galThrottle,
+  _galNext,
   showCtxMenu, closeCtx,
   prefetchDir, cancelPrefetch, getPrefetched,
   uploadChunked,
