@@ -1204,3 +1204,25 @@ body {
   font-size: 9px; font-weight: 700; padding: 2px 6px;
   border-radius: 6px; white-space: nowrap; pointer-events: none;
 }
+
+/* ═══════════════════════════════════════
+   GALERIA — EXIF METADATA BAR
+═══════════════════════════════════════ */
+.gallery-exif {
+  display: flex; align-items: center; gap: 0; flex-wrap: nowrap;
+  overflow-x: auto; padding: 0 12px;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(8px);
+  min-height: 0; max-height: 36px;
+  flex-shrink: 0; scrollbar-width: none;
+  transition: max-height .25s ease, padding .25s;
+}
+.gallery-exif:empty { max-height: 0; padding: 0; }
+.gallery-exif::-webkit-scrollbar { display: none; }
+.exif-item {
+  font-size: 11px; color: rgba(255,255,255,.75);
+  white-space: nowrap; padding: 0 10px;
+  border-right: 1px solid rgba(255,255,255,.15);
+  line-height: 36px;
+}
+.exif-item:last-child { border-right: none; }
+.exif-item a { color: rgba(255,255,255,.75); }
