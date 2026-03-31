@@ -313,9 +313,13 @@ function _imgCacheSet(key, val) {
   _imgCache.set(key, val);
 }
 // Gera URL de thumbnail nativo do Nextcloud
-function thumbUrl(fileid, size=256) {
+function thumbUrl(fileid, size=128) {
+  // Default 128px: suficiente para cards mobile (124px) e desktop (148px)
+  // Retina: o browser escala correctamente com object-fit:cover
+  // Reduzir de 256 → 128: thumbnails ~4x menores → 4x mais rápidos no 1º load
   if (!fileid) return null;
-  return PROXY + '/nextcloud/index.php/core/preview?fileId=' + fileid + '&x=' + size + '&y=' + size + '&forceIcon=0&a=1';
+  const s = Math.min(size, 256); // máximo 256px
+  return PROXY + '/nextcloud/index.php/core/preview?fileId=' + fileid + '&x=' + s + '&y=' + s + '&forceIcon=0&a=1';
 }
 async function authImg(el, url, fallbackUrl, externalSignal) {
   if (!url) return;
@@ -324,19 +328,21 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
   // 1. Cache em memória (mais rápido — sem IDB)
   if (_imgCache.has(cacheKey)) { el.src = _imgCache.get(cacheKey); return; }
 
-  // 2. Cache persistente (IndexedDB — com timeout de 150ms)
-  // Se o IDB for lento (desfragmentação, GC), não bloqueia o fetch
-  const idbCached = await Promise.race([
-    _idbThumb.get(cacheKey),
-    new Promise(res => setTimeout(() => res(null), 150))
-  ]);
-  if (idbCached) {
-    try {
-      const blobUrl = b64ToBlobUrl(idbCached);
-      _imgCache.set(cacheKey, blobUrl);
-      el.src = blobUrl;
-      return;
-    } catch(_) {}
+  // 2. IDB — só para ficheiros completos (fotos offline)
+  // Thumbnails (/preview) são cacheados pelo SW — mais rápido que IDB b64
+  if (!url.includes('/preview') && !url.includes('/core/')) {
+    const idbCached = await Promise.race([
+      _idbThumb.get(cacheKey),
+      new Promise(res => setTimeout(() => res(null), 150))
+    ]);
+    if (idbCached) {
+      try {
+        const blobUrl = b64ToBlobUrl(idbCached);
+        _imgCache.set(cacheKey, blobUrl);
+        el.src = blobUrl;
+        return;
+      } catch(_) {}
+    }
   }
 
   // Galeria usa fila própria (não bloqueia thumbnails do grid)
@@ -358,11 +364,8 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
         _activeBlobUrls.add(objUrl);
         el.onload = () => {};
         el.onerror = () => { _activeBlobUrls.delete(objUrl); };
-        // Guarda no IDB em background (não bloqueia o render)
-        // Só guarda thumbs (URL com /preview ou /core/) — não ficheiros completos
-        if (url.includes('/preview') || url.includes('/core/')) {
-          blobToB64(blob.slice(0, blob.size)).then(b64 => _idbThumb.set(cacheKey, b64)).catch(() => {});
-        }
+        // Thumbnails (/preview) → SW Cache API trata disto automaticamente (30 dias)
+        // Não guardar no _idbThumb — SW cacheFirst é mais rápido que b64ToBlobUrl
         return;
       }
     }
@@ -1578,18 +1581,19 @@ function renderFiles(items) {
   // Prefetch mobile: pré-carrega as primeiras pastas visíveis no IDB
   // No desktop isto é feito ao hover; no mobile precisamos de fazer proactivamente
   // Só prefetch se mobile E pasta não está já em cache fresco
-  if (_isMobileCache) {
-    const dirs = items.filter(it => it.isDir).slice(0, 3);
-    dirs.forEach(dir => {
-      // Delay escalonado: 1s, 2s, 3s — não saturar a ligação
-      const delay = (dirs.indexOf(dir) + 1) * 1000;
-      setTimeout(async () => {
-        const existing = await _idb.get(dir.path);
-        if (_idb.isFresh(existing)) return; // já temos cache fresco
-        prefetchDir(dir.path);
-      }, delay);
-    });
-  }
+  // Prefetch proactivo de subpastas — mobile E desktop
+  // Mobile: sem hover, tem de ser antecipado
+  // Desktop: complementa o hover (pastas não hovadas ainda)
+  // Carrega TODAS as pastas visíveis, escalonadas para não saturar
+  const dirsToFetch = items.filter(it => it.isDir);
+  dirsToFetch.forEach((dir, idx) => {
+    const delay = 300 + idx * 150; // 300ms, 450ms, 600ms... (mais rápido que antes)
+    setTimeout(async () => {
+      const existing = await _idb.get(dir.path);
+      if (_idb.isFresh(existing)) return;
+      prefetchDir(dir.path);
+    }, delay);
+  });
   // Mostra botão slideshow se há imagens
   const hasImgs = items.some(it => !it.isDir && (isImg(it.name) || isVid(it.name)));
   const ssBtn = document.getElementById('btn-slideshow');
@@ -1622,7 +1626,7 @@ function card(it) {
       // Preview via Nextcloud — sem fallback para ficheiro completo no grid.
       // Se o preview falhar: Worker v5 devolve SVG placeholder (200 image/svg+xml).
       // O download completo só acontece quando o utilizador abre a galeria.
-      const tUrl = thumbUrl(fileid, 200); // 200px suficiente para cards de 148px (retina 2x)
+      const tUrl = thumbUrl(fileid, 128); // 128px: cards 124-148px, SW faz cache por URL exacto
       inner = `<img class="thumb loading" data-src="${tUrl}" data-fb="" alt="" onload="this.classList.remove('loading');this.classList.add('loaded')" onerror="this.outerHTML='<div class=\\'fic ic-i\\'>🖼️</div>'">`;
     } else {
       // Sem fileid: ícone imediato, sem pedido de rede. Ficheiro completo só na galeria.
