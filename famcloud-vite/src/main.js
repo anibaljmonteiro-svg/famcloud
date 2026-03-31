@@ -994,20 +994,29 @@ async function loadTree(p, parentEl) {
     const r = await fetch(dav(p), {
       method: 'PROPFIND',
       headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
-      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>`
+      body: `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><oc:fileid xmlns:oc="http://owncloud.org/ns"/></d:prop></d:propfind>`
     });
-    const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    const xmlText = await r.text();
+    const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
     if (!parentEl) { target.innerHTML = ''; target.appendChild(mkTI('🏠','Início','/')); }
     const dirs = [];
+    const allItems = []; // para guardar no IDB e evitar PROPFIND extra no loadFiles
     xml.querySelectorAll('response').forEach(resp => {
       const rel = normPath(decodeURIComponent(resp.querySelector('href').textContent));
       if (normPath(rel) === normPath(p) || !rel || rel === '/') return;
-      if (resp.querySelector('resourcetype collection')) {
-        const nm = resp.querySelector('displayname')?.textContent || rel.split('/').filter(Boolean).pop() || '';
-        if (nm && !nm.startsWith('.') && !HIDDEN.includes(nm))
-          dirs.push({ nm, path: rel.endsWith('/') ? rel : rel+'/' });
-      }
+      const isDir = resp.querySelector('resourcetype collection') !== null;
+      const nm = resp.querySelector('displayname')?.textContent || rel.split('/').filter(Boolean).pop() || '';
+      if (!nm || nm.startsWith('.') || HIDDEN.includes(nm)) return;
+      const size = parseInt(resp.querySelector('getcontentlength')?.textContent || '0') || 0;
+      const mod  = resp.querySelector('getlastmodified')?.textContent || '';
+      const date = mod ? new Date(mod) : new Date(0);
+      const fpath = isDir ? (rel.endsWith('/') ? rel : rel+'/') : rel;
+      const fileid = resp.querySelector('fileid')?.textContent || '';
+      allItems.push({ name:nm, path:fpath, isDir, size, date, dateStr:fmtDate(date), fileid });
+      if (isDir) dirs.push({ nm, path: fpath });
     });
+    // Guarda no IDB — openDir vai encontrar cache fresco e não precisar de PROPFIND
+    if (allItems.length && p !== '/') _idb.set(p, allItems);
     dirs.sort((a,b) => a.nm.localeCompare(b.nm));
     dirs.forEach(d => {
       const wrap = document.createElement('div');
@@ -1140,7 +1149,7 @@ function loadFilesDebounced(p, delay = 300) {
   _loadDebounceTimer = setTimeout(() => loadFiles(p || S.path), delay);
 }
 
-async function loadFiles(p) {
+async function loadFiles(p, preloadedCache) {
   // Cancela qualquer refresh em background da pasta anterior
   if (_bgAbort) { _bgAbort.abort(); _bgAbort = null; }
   // Cancela thumbnails pendentes da pasta anterior
@@ -1148,17 +1157,14 @@ async function loadFiles(p) {
   pageLoaderStart();
   const fl = document.getElementById('fl');
 
-  // ALWAYS SHOW CACHE — se tiver cache, mostra imediatamente
-  // e SEMPRE actualiza em background (como Dropbox/Google Photos)
-  const cached = await _idb.get(p);
+  // Cache pré-lido por openDir (evita 2ª leitura IDB) ou lê agora se chamado directamente
+  const cached = preloadedCache !== undefined ? preloadedCache : await _idb.get(p);
   if (cached && cached.items && cached.items.length > 0) {
     S.lastItems = cached.items;
     renderFiles(cached.items);
     pageLoaderDone();
     syncDone(cached.items.length);
     _idxAdd(cached.items, p);
-    // Background refresh só se o cache estiver stale
-    // Pasta de fotos visitada há 5min → não vai ao servidor (já vimos, não mudou)
     if (!_idb.isFresh(cached)) {
       _refreshInBackground(p);
     }
@@ -1948,20 +1954,19 @@ dzEl.addEventListener('drop', async e => {
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 function navTo(p) {
-  S.hist.push(S.path);
-  loadFiles(p);
-  // Fecha sidebar no mobile ao navegar
-  if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
+  // Usa openDir para beneficiar do cache IDB (evita PROPFIND se cache fresco)
+  openDir(p);
 }
 async function openDir(p) {
   const target = p.endsWith('/') ? p : p+'/';
   S.hist.push(S.path);
-  // Fecha sidebar ao navegar no mobile
   if (window.innerWidth <= 700 && S.sidebarOpen) closeSB();
-  // Se temos cache fresco desta pasta → mostra instantaneamente sem loader
+  // Cancela prefetch pendente para esta pasta (evita PROPFIND duplo)
+  cancelPrefetch(target);
+  // Lê IDB uma única vez — loadFiles não volta a ler
   const cached = await _idb.get(target);
   if (_idb.isFresh(cached) && cached.items?.length) {
-    // Navegação instantânea — zero pedidos ao servidor
+    // Cache fresco → sem pedidos ao servidor
     S.path = target;
     S.lastItems = cached.items;
     clearSel(); updateBC(); updateTreeActive();
@@ -1973,8 +1978,9 @@ async function openDir(p) {
     _cancelPendingThumbs();
     return;
   }
-  // Sem cache fresco → carregamento normal
-  loadFiles(target);
+  // Cache stale ou inexistente → passa cache (pode ser nulo) ao loadFiles
+  // para evitar segunda leitura IDB
+  loadFiles(target, cached);
 }
 function goBack() { if (S.hist.length) loadFiles(S.hist.pop()); }
 function goHome() { S.hist = []; loadFiles('/'); }
@@ -2049,17 +2055,19 @@ const _idb = (() => {
     isFresh(cached) {
       if (!cached || !cached.ts) return false;
       const age = Date.now() - cached.ts;
+      // TTL personalizado (ex: prefetch usa 2min)
+      if (cached.ttl) return age < cached.ttl;
       const count = cached.items?.length || 0;
-      // Pastas grandes (fotos) → TTL 20 min (raramente mudam)
-      // Pastas pequenas (documentos) → TTL 5 min
+      // Pastas grandes (fotos) → 20min | Pequenas → 5min
       const ttl = count > 50 ? 20 * 60 * 1000 : 5 * 60 * 1000;
       return age < ttl;
     },
-    async set(path, items) {
+    async set(path, items, customTTL) {
       try {
         const d = await open();
         const tx = d.transaction('dirs', 'readwrite');
-        tx.objectStore('dirs').put({ path, items, ts: Date.now() });
+        // customTTL permite ao prefetch definir TTL mais curto (2min vs 20-30min)
+        tx.objectStore('dirs').put({ path, items, ts: Date.now(), ttl: customTTL || null });
       } catch(e) {}
     },
     async del(path) {
@@ -2388,7 +2396,8 @@ function prefetchDir(path) {
       if (r.ok) {
         const txt = await r.text();
         _prefetchCache.set(path, txt);
-        // Guarda também no IDB para persistir entre sessões
+        // Guarda no IDB — quando o utilizador abrir, openDir encontra cache fresco
+        // e não precisa de fazer PROPFIND (zero pedidos ao servidor)
         try {
           const xml = new DOMParser().parseFromString(txt, 'text/xml');
           const items = [];
@@ -2405,7 +2414,8 @@ function prefetchDir(path) {
             const fileid = resp.querySelector('fileid')?.textContent || '';
             items.push({ name:nm, path:fpath, isDir, size, date, dateStr:fmtDate(date), fileid });
           });
-          if (items.length) _idb.set(path, items);
+          // TTL curto para prefetch (2 min) — conteúdo pode mudar
+          if (items.length) _idb.set(path, items, 2 * 60 * 1000);
         } catch(_) {}
       }
     } catch(e) {}
