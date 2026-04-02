@@ -123,24 +123,16 @@ window.fetch = async (url, opts={}) => {
   }
   if (!r) throw new Error('Timeout ou sem resposta');
   if (r.status === 401 && S.user && url.toString().includes(PROXY)) {
-    // Tenta refresh silencioso com credenciais guardadas
-    const saved = localStorage.getItem('fc_cred');
-    if (saved) {
-      try {
-        let d;
-        try { d = JSON.parse(saved); } catch(_) { d = JSON.parse(deobfuscate(saved)); }
-        // Valida schema — evita crash se localStorage corrompido
-        if (!d || typeof d.user !== 'string' || typeof d.pass !== 'string') throw new Error('schema inválido');
-        S.user = d.user; S.pass = d.pass;
-        // Retry o pedido original uma vez
-        const r2 = await _origFetch(url, {
-          ...opts,
-          headers: { ...(opts.headers||{}), 'Authorization': auth() }
-        });
-        if (r2.status !== 401) return r2;
-      } catch(e) {}
+    // Usa _refreshSession (AES decrypt → legacy fallback) — definido mais abaixo
+    const refreshed = await _refreshSession();
+    if (refreshed) {
+      // Retry com signal limpo — o original pode estar abortado
+      const r2 = await _origFetch(url, {
+        ...opts, signal: undefined,
+        headers: { ...(opts.headers||{}), 'Authorization': auth() }
+      });
+      if (r2.status !== 401) return r2;
     }
-    // Falhou mesmo — força logout limpo
     if (S.user) { toast('Sessão expirada. A reconectar...', 'err'); setTimeout(doLogout, 1500); }
   }
   return r;
@@ -246,6 +238,11 @@ const _activeBlobUrls = new Set();
 let _imgAbortCtrl = new AbortController();
 // AbortController separado para a galeria — não é cancelado ao navegar entre pastas
 let _galleryAbortCtrl = new AbortController();
+let _galleryProgInt  = null; // interval da barra de progresso — module scope para evitar leak
+
+// ── TOUCH STATE — module scope (não stale entre renders) ────────────────────
+// Declarar aqui evita que renderFiles() re-declare e perca estado durante toque
+let _tCard = null, _tTimer = null, _tMoved = false, _tX = 0, _tY = 0;
 
 function _cancelPendingThumbs() {
   _imgAbortCtrl.abort();
@@ -258,9 +255,108 @@ function _cancelPendingThumbs() {
 function _cancelGallery() {
   _galleryAbortCtrl.abort();
   _galleryAbortCtrl = new AbortController();
-  // Limpa fila dedicada da galeria
   _galQueue.length = 0;
   _galActive = 0;
+}
+
+// ─── EXIF — lê metadados de JPEG via Range request (64KB) ────────────────────
+const _exifCache = new Map(); // path → dados EXIF | null
+
+async function _loadExif(item) {
+  const bar = document.getElementById('gallery-exif');
+  if (!bar || !isImg(item.name)) { if (bar) bar.innerHTML = ''; return; }
+
+  const ext = (item.name.split('.').pop() || '').toLowerCase();
+  if (!['jpg','jpeg','heic','heif'].includes(ext)) { bar.innerHTML = ''; return; }
+
+  // Cache hit
+  if (_exifCache.has(item.path)) {
+    _renderExifBar(bar, _exifCache.get(item.path));
+    return;
+  }
+
+  // Range request — só os primeiros 64KB (EXIF está no header do JPEG)
+  try {
+    const r = await _origFetch(dav(item.path), {
+      headers: { 'Authorization': auth(), 'Range': 'bytes=0-65535' },
+      signal: _galleryAbortCtrl.signal
+    });
+    if (!r.ok && r.status !== 206) { _exifCache.set(item.path, null); return; }
+
+    const blob = await r.blob();
+
+    // Usar exifr se disponível (CDN), fallback para leitura manual
+    let data = null;
+    if (typeof exifr !== 'undefined') {
+      try {
+        data = await exifr.parse(blob, {
+          tiff: true, exif: true, gps: true,
+          pick: ['Make','Model','DateTimeOriginal','FNumber','ExposureTime',
+                 'ISO','FocalLength','ImageWidth','ImageHeight','GPSLatitude',
+                 'GPSLongitude','GPSLatitudeRef','GPSLongitudeRef']
+        });
+      } catch(_) {}
+    }
+
+    const out = _parseExifData(data);
+    _exifCache.set(item.path, out);
+    _renderExifBar(bar, out);
+  } catch(e) {
+    if (e?.name !== 'AbortError') _exifCache.set(item.path, null);
+  }
+}
+
+function _parseExifData(d) {
+  if (!d) return null;
+  const out = {};
+  if (d.Make && d.Model) {
+    out.camera = d.Model.startsWith(d.Make) ? d.Model : `${d.Make} ${d.Model}`.trim();
+  } else if (d.Model) {
+    out.camera = d.Model;
+  }
+  if (d.DateTimeOriginal) {
+    try {
+      const dt = d.DateTimeOriginal instanceof Date ? d.DateTimeOriginal : new Date(d.DateTimeOriginal);
+      if (!isNaN(dt)) out.date = dt.toLocaleDateString('pt-PT', {
+        day:'2-digit', month:'short', year:'numeric'
+      }) + ' ' + dt.toLocaleTimeString('pt-PT', { hour:'2-digit', minute:'2-digit' });
+    } catch(_) {}
+  }
+  if (d.FNumber)       out.aperture  = 'f/' + Number(d.FNumber).toFixed(1);
+  if (d.ExposureTime)  out.shutter   = d.ExposureTime < 1
+    ? '1/' + Math.round(1 / d.ExposureTime) + 's'
+    : Number(d.ExposureTime).toFixed(1) + 's';
+  if (d.ISO)           out.iso       = 'ISO ' + d.ISO;
+  if (d.FocalLength)   out.focal     = Math.round(d.FocalLength) + 'mm';
+  if (d.ImageWidth && d.ImageHeight) out.dims = `${d.ImageWidth}×${d.ImageHeight}`;
+
+  // GPS
+  if (d.GPSLatitude && d.GPSLongitude) {
+    let lat = Array.isArray(d.GPSLatitude)
+      ? d.GPSLatitude[0] + d.GPSLatitude[1]/60 + d.GPSLatitude[2]/3600
+      : Number(d.GPSLatitude);
+    let lon = Array.isArray(d.GPSLongitude)
+      ? d.GPSLongitude[0] + d.GPSLongitude[1]/60 + d.GPSLongitude[2]/3600
+      : Number(d.GPSLongitude);
+    if (d.GPSLatitudeRef  === 'S') lat = -lat;
+    if (d.GPSLongitudeRef === 'W') lon = -lon;
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      out.mapsUrl = `https://www.google.com/maps?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function _renderExifBar(bar, exif) {
+  if (!exif) { bar.innerHTML = ''; return; }
+  const parts = [];
+  if (exif.date)    parts.push(`📅 ${exif.date}`);
+  if (exif.camera)  parts.push(`📷 ${exif.camera}`);
+  if (exif.dims)    parts.push(`📐 ${exif.dims}`);
+  const tech = [exif.aperture, exif.shutter, exif.iso, exif.focal].filter(Boolean);
+  if (tech.length)  parts.push(tech.join(' · '));
+  if (exif.mapsUrl) parts.push(`<a href="${exif.mapsUrl}" target="_blank" rel="noopener" style="color:inherit">📍 Ver no mapa</a>`);
+  bar.innerHTML = parts.map(p => `<span class="exif-item">${p}</span>`).join('');
 }
 
 function _imgCacheCleanup() {
@@ -566,6 +662,34 @@ function setupOffline() {
   update();
 }
 
+
+// ─── REFRESH DE SESSÃO CENTRALIZADO ─────────────────────────────────────────
+// Fluxo (diagrama 1): visibilitychange → _refreshSession → SET_AUTH → PROPFIND
+// Hierarquia: AES-GCM → JSON legacy → XOR legacy
+async function _refreshSession() {
+  const saved = localStorage.getItem('fc_cred');
+  if (!saved) return false;
+  const isAES = localStorage.getItem('fc_cred_enc') === '1';
+  try {
+    let plaintext;
+    if (isAES) {
+      plaintext = await decryptCred(saved);
+    } else {
+      try { JSON.parse(saved); plaintext = saved; }
+      catch(_) { plaintext = deobfuscate(saved); }
+    }
+    if (!plaintext) return false;
+    const d = JSON.parse(plaintext);
+    if (!d?.user || !d?.pass) return false;
+    S.user = d.user; S.pass = d.pass;
+    navigator.serviceWorker?.controller?.postMessage({ type: 'SET_AUTH', auth: auth() });
+    return true;
+  } catch(e) {
+    Logger.warn('_refreshSession falhou', e?.message);
+    return false;
+  }
+}
+
 // ─── LOGIN / LOGOUT ───────────────────────────────────────────────────────────
 async function doLogin() {
   S.server = PROXY;
@@ -680,6 +804,8 @@ function initApp() {
   switchTab('files');
   // Verifica uploads pendentes de sessão anterior
   setTimeout(checkUploadQueue, 2000);
+  // Inicia indexação BFS em background (3s de delay para não competir com o load inicial)
+  setTimeout(startBackgroundIndex, 3000);
 }
 
 function doLogout() {
@@ -725,6 +851,9 @@ function doLogout() {
   // Remove badge de refresh se existir
   document.getElementById('refresh-badge')?.remove();
   calLoaded = false; notesLoaded = false; wxLoaded = false;
+  // Limpa auth do SW — sem requests autenticados após logout
+  navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_AUTH' });
+  stopBackgroundIndex();
   if(typeof switchTab==='function') switchTab('files');
 }
 
@@ -735,13 +864,13 @@ async function loadAvatar() {
       headers: { 'Authorization': auth() }
     });
     if (r.ok) { setAvatar(URL.createObjectURL(await r.blob())); return; }
-  } catch(e) {}
+  } catch(e) { Logger.info('loadAvatar: endpoint principal falhou', e?.message); }
   const stored = sessionStorage.getItem('fc_avpath');
   if (stored) {
     try {
       const r = await fetch(dav(stored), { headers: { 'Authorization': auth() } });
       if (r.ok) setAvatar(URL.createObjectURL(await r.blob()));
-    } catch(e) {}
+    } catch(e) { Logger.info('loadAvatar: fallback falhou', e?.message); }
   }
 }
 
@@ -1219,7 +1348,7 @@ async function loadFiles(p, preloadedCache) {
             S.user = d.user; S.pass = d.pass;
             sessionStorage.setItem('fc', saved);
             loadFiles(p); return; // retry with refreshed credentials
-          } catch(e) {}
+          } catch(e) { Logger.warn('restoreSession retry falhou', e?.message); }
         }
         toast('Sessão expirada. Volta a entrar.', 'err'); doLogout(); return;
       }
@@ -1400,15 +1529,10 @@ function renderFiles(items) {
   const fl = document.getElementById('fl');
   fl.style.opacity = '';
   fl.style.userSelect = '';
-  // Bloqueia durante render, desbloqueia após 2 frames (DOM pronto)
-  fl.style.pointerEvents = 'none';
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      fl.style.pointerEvents = '';
-      fl.style.userSelect = '';
-    });
-  });
-  // Remove listener anterior se existir
+  // DOM write é síncrono — não precisamos de bloquear pointerEvents
+  // Remove TODOS os listeners anteriores (incluindo prefetch hover)
+  if (fl._prefetchEnter) fl.removeEventListener('mouseenter', fl._prefetchEnter, true);
+  if (fl._prefetchLeave) fl.removeEventListener('mouseleave', fl._prefetchLeave, true);
   if (fl._delegateHandler) fl.removeEventListener('click', fl._delegateHandler);
   if (fl._safeClick) fl.removeEventListener('click', fl._safeClick);
   if (fl._delegateCTX) fl.removeEventListener('contextmenu', fl._delegateCTX);
@@ -1416,16 +1540,17 @@ function renderFiles(items) {
   if (fl._delegateTouchMove) fl.removeEventListener('touchmove', fl._delegateTouchMove);
   if (fl._delegateTouchEnd) fl.removeEventListener('touchend', fl._delegateTouchEnd);
 
-  // Event delegation — um único listener para toda a grelha
-  // Prefetch on hover via delegation
-  fl.addEventListener('mouseenter', (e) => {
+  // Prefetch on hover — guardados no fl para remoção no próximo render
+  fl._prefetchEnter = (e) => {
     const card = e.target.closest('[data-prefetch]');
     if (card) prefetchDir(card.dataset.prefetch);
-  }, true);
-  fl.addEventListener('mouseleave', (e) => {
+  };
+  fl._prefetchLeave = (e) => {
     const card = e.target.closest('[data-prefetch]');
     if (card) cancelPrefetch(card.dataset.prefetch);
-  }, true);
+  };
+  fl.addEventListener('mouseenter', fl._prefetchEnter, true);
+  fl.addEventListener('mouseleave', fl._prefetchLeave, true);
 
   fl._delegateHandler = (e) => {
     const card = e.target.closest('[data-path]');
@@ -1469,12 +1594,10 @@ function renderFiles(items) {
     showCtxMenu(e, card.dataset.path, card.dataset.name, card.dataset.dir==='1', card.dataset.fid||'');
   };
 
-  // ── TOUCH: actua no touchend — sem esperar pelo click event ────────────────
-  // O click em iOS/Android chega 50-300ms DEPOIS do touchend.
-  // _didScroll+120ms falha porque o click chega antes do reset.
-  // Solução: executar a acção directamente no touchend quando não houve scroll.
-  let _tCard = null, _tTimer = null, _tMoved = false;
-  let _tX = 0, _tY = 0;
+  // ── TOUCH: actua no touchend — vars em module scope (não stale) ────────────
+  // _tCard, _tTimer, _tMoved, _tX, _tY estão declarados no topo do módulo
+  // Reset de estado no início de cada render (não herdar estado de render anterior)
+  clearTimeout(_tTimer); _tCard = null; _tMoved = false;
 
   fl._delegateTouch = (e) => {
     const card = e.target.closest('[data-path]');
@@ -1484,10 +1607,9 @@ function renderFiles(items) {
     _tMoved = false;
     clearTimeout(_tTimer);
     if (!card) return;
-    // Long press 650ms → selecção múltipla
     _tTimer = setTimeout(() => {
       if (!_tMoved) {
-        _tCard = null; // cancela o tap normal
+        _tCard = null;
         enterSel(card.dataset.path);
         if (navigator.vibrate) navigator.vibrate(40);
       }
@@ -1498,7 +1620,10 @@ function renderFiles(items) {
     if (_tMoved) return;
     const dx = Math.abs(e.touches[0].clientX - _tX);
     const dy = Math.abs(e.touches[0].clientY - _tY);
-    if (dx > 8 || dy > 8) { _tMoved = true; _tCard = null; clearTimeout(_tTimer); }
+    // 12px: threshold mais tolerante para digitizers de iPhone (ruído de dedo)
+    // Entre 6-12px: cancela long-press mas NÃO marca como scroll (micro-movement)
+    if (dy > 6 && dy < 12) { clearTimeout(_tTimer); return; }
+    if (dx > 12 || dy > 12) { _tMoved = true; _tCard = null; clearTimeout(_tTimer); }
   };
 
   fl._delegateTouchEnd = (e) => {
@@ -1506,16 +1631,14 @@ function renderFiles(items) {
     const card = _tCard;
     _tCard = null;
     if (!card || _tMoved) return;
-    // Tap confirmado — actua agora, sem esperar pelo click
-    e.preventDefault(); // cancela o click sintético do browser (evita dupla execução)
+    e.preventDefault();
     const fakeE = { target: e.changedTouches[0].target,
                     stopPropagation: ()=>{}, preventDefault: ()=>{} };
     fl._delegateHandler(fakeE);
   };
 
-  // Click apenas para rato (desktop) — touch usa touchend acima
   fl._safeClick = (e) => {
-    if (e.pointerType === 'touch') return; // bloqueia clicks sintéticos de touch
+    if (e.pointerType === 'touch') return;
     fl._delegateHandler(e);
   };
 
@@ -1612,6 +1735,18 @@ function renderFiles(items) {
   }
   // Actualiza barra de estado com contagens
   updateFilesStatus(items);
+
+  // SW: pré-cacheia thumbnails dos primeiros 50 ficheiros visíveis (diagrama 2)
+  if (navigator.serviceWorker?.controller) {
+    const thumbUrls = items
+      .filter(it => !it.isDir && it.fileid)
+      .slice(0, 50)
+      .map(it => thumbUrl(it.fileid, 128))
+      .filter(Boolean);
+    if (thumbUrls.length) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_THUMBS', urls: thumbUrls });
+    }
+  }
 }
 
 function card(it) {
@@ -2032,11 +2167,20 @@ const _idb = (() => {
   let db = null;
   const open = () => new Promise((res, rej) => {
     if (db) return res(db);
-    const r = indexedDB.open('fc-cache-v1', 1);
+    const r = indexedDB.open('fc-cache-v2', 2); // v2 adiciona searchIndex
     r.onupgradeneeded = e => {
       const d = e.target.result;
-      if (!d.objectStoreNames.contains('dirs'))
+      const oldV = e.oldVersion;
+      if (oldV < 1) {
         d.createObjectStore('dirs', { keyPath: 'path' });
+      }
+      if (oldV < 2) {
+        // Índice de pesquisa global — persistente entre sessões
+        if (!d.objectStoreNames.contains('searchIndex')) {
+          const si = d.createObjectStore('searchIndex', { keyPath: 'path' });
+          si.createIndex('name', 'name');
+        }
+      }
     };
     r.onsuccess = e => { db = e.target.result; res(db); };
     r.onerror = () => rej(r.error);
@@ -2090,6 +2234,219 @@ const _idb = (() => {
     }
   };
 })();
+
+
+// ─── IDB SEARCH INDEX ────────────────────────────────────────────────────────
+// CRUD para o store searchIndex (persistente entre sessões)
+const _idbSearch = (() => {
+  // Reutiliza a mesma conexão do _idb (fc-cache-v2)
+  async function _db() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('fc-cache-v2', 2);
+      r.onupgradeneeded = e => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains('searchIndex')) {
+          const si = d.createObjectStore('searchIndex', { keyPath: 'path' });
+          si.createIndex('name', 'name');
+        }
+      };
+      r.onsuccess = e => res(e.target.result);
+      r.onerror   = () => rej(r.error);
+    });
+  }
+
+  return {
+    async addBatch(items) {
+      try {
+        const db = await _db();
+        const tx = db.transaction('searchIndex', 'readwrite');
+        const store = tx.objectStore('searchIndex');
+        for (const it of items) store.put(it);
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+      } catch(e) { Logger.warn('_idbSearch.addBatch', e?.message); }
+    },
+
+    async search(q) {
+      try {
+        const db = await _db();
+        return new Promise((res, rej) => {
+          const tx = db.transaction('searchIndex', 'readonly');
+          const req = tx.objectStore('searchIndex').getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror   = () => rej(req.error);
+        });
+      } catch(e) { return []; }
+    },
+
+    async count() {
+      try {
+        const db = await _db();
+        return new Promise(res => {
+          const req = db.transaction('searchIndex','readonly')
+                        .objectStore('searchIndex').count();
+          req.onsuccess = () => res(req.result || 0);
+          req.onerror   = () => res(0);
+        });
+      } catch(e) { return 0; }
+    },
+
+    async getIndexedAt() {
+      try {
+        return parseInt(localStorage.getItem('fc_search_indexed_at') || '0');
+      } catch(e) { return 0; }
+    },
+
+    setIndexedAt() {
+      try { localStorage.setItem('fc_search_indexed_at', Date.now().toString()); } catch(_) {}
+    },
+
+    async clear() {
+      try {
+        const db = await _db();
+        db.transaction('searchIndex','readwrite').objectStore('searchIndex').clear();
+        localStorage.removeItem('fc_search_indexed_at');
+      } catch(_) {}
+    }
+  };
+})();
+
+// ─── INDEXAÇÃO BFS EM BACKGROUND ─────────────────────────────────────────────
+// Percorre toda a árvore de pastas 3s após login
+// requestIdleCallback garante que não interfere com a UI
+// Max 1 PROPFIND concorrente, 200ms entre requests, retry em 429
+let _bgIndexAbort = null;
+let _bgIndexRunning = false;
+
+async function startBackgroundIndex() {
+  if (_bgIndexRunning) return;
+
+  // Só re-indexa se o índice tiver mais de 24h ou estiver vazio
+  const lastIndexed = await _idbSearch.getIndexedAt();
+  const count = await _idbSearch.count();
+  const age   = Date.now() - lastIndexed;
+  if (count > 0 && age < 24 * 60 * 60 * 1000) {
+    // Índice fresco — restaurar apenas para o _searchIdx em memória
+    const all = await _idbSearch.search('');
+    all.forEach(it => _searchIdx.set(it.path, it));
+    Logger.info(`startBackgroundIndex: índice restaurado (${count} itens, ${Math.round(age/60000)}min)`);
+    return;
+  }
+
+  _bgIndexRunning = true;
+  _bgIndexAbort   = new AbortController();
+  const signal    = _bgIndexAbort.signal;
+
+  // Progressbar discreta no footer
+  const _showProgress = (done, total) => {
+    const el = document.getElementById('search-index-progress');
+    if (!el) return;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    el.textContent = `🔍 Índice: ${done} pastas...`;
+    el.style.display = total && done >= total ? 'none' : 'block';
+  };
+
+  // Criar elemento de progresso se não existir
+  if (!document.getElementById('search-index-progress')) {
+    const el = document.createElement('div');
+    el.id = 'search-index-progress';
+    el.style.cssText = 'font-size:10px;color:var(--text3);padding:2px 14px;display:none';
+    document.querySelector('.files-status')?.after(el);
+  }
+
+  Logger.info('startBackgroundIndex: a iniciar BFS');
+  const queue   = ['/']; // BFS queue de paths a visitar
+  const visited = new Set(['/']);
+  let   done    = 0;
+  const batch   = []; // acumula items para flush em IDB
+
+  const flushBatch = async () => {
+    if (!batch.length) return;
+    await _idbSearch.addBatch([...batch]);
+    batch.length = 0;
+  };
+
+  const idle = (deadline) => new Promise(res => {
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(res, { timeout: 2000 });
+    } else {
+      setTimeout(res, 16); // fallback Safari (não tem requestIdleCallback)
+    }
+  });
+
+  while (queue.length && !signal.aborted) {
+    const path = queue.shift();
+    _showProgress(done, done + queue.length);
+
+    // Aguarda idle slot do browser (não bloqueia UI)
+    await idle();
+    if (signal.aborted) break;
+
+    try {
+      const r = await _origFetch(dav(path), {
+        method: 'PROPFIND',
+        headers: { 'Authorization': auth(), 'Depth': '1', 'Content-Type': 'application/xml' },
+        body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>',
+        signal
+      });
+
+      if (r.status === 429) {
+        // Rate limit — backoff exponencial
+        const wait = 5000 * (1 + Math.random());
+        Logger.warn(`startBackgroundIndex: 429 em ${path}, aguarda ${Math.round(wait)}ms`);
+        await new Promise(res => setTimeout(res, wait));
+        queue.unshift(path); // volta à frente da fila
+        continue;
+      }
+
+      if (!r.ok) { done++; continue; }
+
+      const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+      xml.querySelectorAll('response').forEach(resp => {
+        const rel = normPath(decodeURIComponent(resp.querySelector('href')?.textContent || ''));
+        if (!rel || normPath(rel) === normPath(path)) return;
+        const nm = resp.querySelector('displayname')?.textContent || '';
+        if (!nm || nm.startsWith('.') || HIDDEN.includes(nm)) return;
+        const isDir   = resp.querySelector('resourcetype collection') !== null;
+        const size    = parseInt(resp.querySelector('getcontentlength')?.textContent || '0') || 0;
+        const mod     = resp.querySelector('getlastmodified')?.textContent || '';
+        const date    = mod ? new Date(mod) : new Date(0);
+        const fpath   = isDir ? (rel.endsWith('/') ? rel : rel+'/') : rel;
+
+        const item = { name:nm, path:fpath, isDir, size, dateStr:fmtDate(date), parent:path };
+        _searchIdx.set(fpath, item);
+        batch.push(item);
+
+        // Adicionar subpastas à queue BFS
+        if (isDir && !visited.has(fpath)) {
+          visited.add(fpath);
+          queue.push(fpath);
+        }
+      });
+
+      // Flush ao IDB a cada 200 itens (não bloqueante)
+      if (batch.length >= 200) await flushBatch();
+
+    } catch(e) {
+      if (e?.name === 'AbortError') break;
+      Logger.warn('startBackgroundIndex: erro em ' + path, e?.message);
+    }
+
+    done++;
+    // Pausa entre requests — não saturar o servidor
+    await new Promise(res => setTimeout(res, 200));
+  }
+
+  await flushBatch();
+  _idbSearch.setIndexedAt();
+  _bgIndexRunning = false;
+  _showProgress(done, done);
+  Logger.info(`startBackgroundIndex: concluído — ${_searchIdx.size} itens indexados`);
+}
+
+function stopBackgroundIndex() {
+  if (_bgIndexAbort) { _bgIndexAbort.abort(); _bgIndexAbort = null; }
+  _bgIndexRunning = false;
+}
 
 // TTL do cache — 5 minutos
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
@@ -2286,19 +2643,35 @@ function _idxAdd(items, parentPath) {
 }
 
 function _idxSearch(q) {
+  if (!q) return [];
   const ql = q.toLowerCase();
-  const results = [];
+  const prefix  = []; // nome começa com a query (prioridade alta)
+  const include = []; // nome contém a query (prioridade normal)
+
   for (const [, item] of _searchIdx) {
-    if (item.name.toLowerCase().includes(ql)) {
-      results.push(item);
-    }
+    const nl = item.name.toLowerCase();
+    if (nl.startsWith(ql))    prefix.push(item);
+    else if (nl.includes(ql)) include.push(item);
   }
-  // Ordena: pastas primeiro, depois por nome
-  results.sort((a, b) => {
+
+  const sort = (arr) => arr.sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     return a.name.localeCompare(b.name, 'pt');
   });
-  return results.slice(0, 60);
+
+  return [...sort(prefix), ...sort(include)].slice(0, 100);
+}
+
+// Highlight do termo pesquisado no nome do ficheiro
+function _highlightTerm(name, q) {
+  if (!q) return hesc(name);
+  const idx = name.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return hesc(name);
+  return hesc(name.slice(0, idx))
+    + '<mark style="background:var(--primary);color:#fff;border-radius:2px;padding:0 2px">'
+    + hesc(name.slice(idx, idx + q.length))
+    + '</mark>'
+    + hesc(name.slice(idx + q.length));
 }
 
 // Ctrl+K para abrir pesquisa
@@ -2581,12 +2954,29 @@ const IMG_QUALITY = 0.88;  // qualidade JPEG/WebP
 async function compressImage(file) {
   const ext = file.name.split('.').pop().toLowerCase();
 
-  // HEIC/HEIF — createImageBitmap não suporta nestes formatos na maioria dos browsers
-  // Envia o original sem comprimir (o Nextcloud converte no servidor)
-  if (['heic','heif'].includes(ext)) return file;
+  // Detecção HEIC por magic bytes — apanha ficheiros iOS com extensão .jpg que são HEIC internamente
+  // HEIC magic: bytes 4-7 = 'ftyp', bytes 8-11 = 'heic'|'heix'|'mif1'|'msf1'
+  if (!['jpg','jpeg','png','bmp','tiff','webp'].includes(ext)) {
+    if (['heic','heif'].includes(ext)) return file; // pass-through explícito
+    // Para outras extensões, verificar magic bytes
+    try {
+      const header = await file.slice(0, 12).arrayBuffer();
+      const view = new DataView(header);
+      const ftyp = String.fromCharCode(view.getUint8(4), view.getUint8(5), view.getUint8(6), view.getUint8(7));
+      const brand = String.fromCharCode(view.getUint8(8), view.getUint8(9), view.getUint8(10), view.getUint8(11));
+      if (ftyp === 'ftyp' && ['heic','heix','mif1','msf1'].includes(brand)) return file;
+    } catch(_) {}
+    return file;
+  }
 
-  // Apenas estas extensões
-  if (!['jpg','jpeg','png','bmp','tiff','webp'].includes(ext)) return file;
+  // Para JPEG/PNG: verificar se é HEIC disfarçado
+  try {
+    const header = await file.slice(0, 12).arrayBuffer();
+    const view = new DataView(header);
+    const ftyp = String.fromCharCode(view.getUint8(4), view.getUint8(5), view.getUint8(6), view.getUint8(7));
+    const brand = String.fromCharCode(view.getUint8(8), view.getUint8(9), view.getUint8(10), view.getUint8(11));
+    if (ftyp === 'ftyp' && ['heic','heix','mif1','msf1'].includes(brand)) return file;
+  } catch(_) {}
 
   // Ficheiros pequenos — não vale o processamento
   if (file.size < 800 * 1024) return file; // < 800KB
@@ -2621,15 +3011,14 @@ async function compressImage(file) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(bitmap, 0, 0, nw, nh);
       bitmap.close();
-      // Tenta WebP primeiro (30% menor que JPEG), fallback para JPEG
-      const supportsWebP = useOffscreen; // OffscreenCanvas suporta WebP
+      // WebP: 0.78 qualidade (mais eficiente que JPEG 0.88, visualmente equivalente)
+      const supportsWebP = useOffscreen;
       blob = await canvas.convertToBlob({
         type: supportsWebP ? 'image/webp' : 'image/jpeg',
-        quality: IMG_QUALITY
+        quality: supportsWebP ? 0.78 : 0.80
       });
-      // Se WebP for maior (raro), tenta JPEG
       if (supportsWebP && blob.size >= file.size * 0.9) {
-        blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: IMG_QUALITY });
+        blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.80 });
       }
     } else {
       // Fallback: canvas normal (iOS Safari)
@@ -2638,7 +3027,7 @@ async function compressImage(file) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(bitmap, 0, 0, nw, nh);
       bitmap.close();
-      blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', IMG_QUALITY));
+      blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.80));
     }
 
     if (!blob || blob.size >= file.size) return file; // sem ganho
@@ -2887,6 +3276,40 @@ window.addEventListener('unhandledrejection', e => {
 window.addEventListener('error', e => {
   Logger.error('Uncaught error', { msg: e.message, file: e.filename, line: e.lineno });
 });
+
+// ─── HANDLE ERROR CENTRALIZADO ───────────────────────────────────────────────
+// 3 categorias: user (toast), background (só log), auth (mensagem específica)
+// Dedup: mesmo context+msg suprimido durante 5s (evita spam de toasts)
+const _errDedup = new Map();
+function handleError(context, err, showToast = false) {
+  if (!err) return;
+  // AbortError é sempre silencioso (navegação normal)
+  if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return;
+  const key = context + String(err?.message || err);
+  const now = Date.now();
+  if (_errDedup.has(key) && now - _errDedup.get(key) < 5000) return;
+  _errDedup.set(key, now);
+  // Log sempre
+  Logger.warn(context, err?.message || String(err));
+  // Toast só em operações iniciadas pelo utilizador
+  if (showToast) {
+    const msg = _errMsg(context, err);
+    toast(msg, 'err');
+  }
+}
+function _errMsg(context, err) {
+  const status = err?.status || err?.code;
+  if (context.includes('upload'))   return `❌ Erro no upload: ${err?.message || 'tenta novamente'}`;
+  if (context.includes('delete'))   return `❌ Erro ao apagar: ${err?.message || ''}`;
+  if (context.includes('rename'))   return `❌ Erro ao renomear: ${err?.message || ''}`;
+  if (context.includes('move'))     return `❌ Erro ao mover: ${err?.message || ''}`;
+  if (context.includes('folder'))   return `❌ Erro ao criar pasta: ${err?.message || ''}`;
+  if (context.includes('download')) return `❌ Erro no download: ${err?.message || ''}`;
+  if (context.includes('share'))    return `❌ Erro na partilha: ${err?.message || ''}`;
+  if (status === 507)               return '❌ Servidor sem espaço disponível';
+  if (status === 429)               return '⚠️ Demasiados pedidos — aguarda um momento';
+  return `❌ ${context}: ${err?.message || 'erro desconhecido'}`;
+}
 
 
 // ─── DESFAZER (CTRL+Z) ───────────────────────────────────────────────────────
@@ -3300,7 +3723,7 @@ const UPQ = {
       }
       const destPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/').replace(/'/g,'%27');
       let queueId=null;
-      try { queueId=await UQ.add(f,destPath); } catch(e) {}
+      try { queueId=await UQ.add(f,destPath); } catch(e) { handleError('upload-queue', e); }
       // Comprime imagens antes de enviar (>1MB)
       // Upload optimista — mostra card na grid imediatamente
       const optPath = destDir + encodeURIComponent(f.name).replace(/%2F/g,'/');
@@ -3313,7 +3736,10 @@ const UPQ = {
         if (fileToUpload !== f) {
           const saved = Math.round((1 - fileToUpload.size/f.size)*100);
           const fmt = fileToUpload.name.endsWith('.webp') ? 'WebP' : 'JPEG';
-          document.getElementById('uprog-speed').textContent = `🗜️ ${fmt} -${saved}% · ${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)}`;
+          const msg = `🗜️ ${f.name}: ${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)} (-${saved}%)`;
+          document.getElementById('uprog-speed').textContent = msg;
+          // Toast visível se a poupança for significativa (>30%)
+          if (saved >= 30) toast(`📦 Comprimido: ${fmtSz(f.size)} → ${fmtSz(fileToUpload.size)} (-${saved}%)`, 'ok');
         }
       }
       const f2 = fileToUpload; // usa ficheiro comprimido daqui para a frente
@@ -3653,7 +4079,7 @@ async function openMoveModal(paths, names) {
     });
     dirs.sort((a,b)=>a.nm.localeCompare(b.nm));
     dirs.forEach(d => { sel.innerHTML += `<option value="${d.path}">📁 ${hesc(d.nm)}</option>`; });
-  } catch(e) {}
+  } catch(e) { Logger.warn('openMoveModal: erro ao carregar pastas', e?.message); }
   showM('move');
 }
 
@@ -3700,6 +4126,8 @@ function openGallery(clickedPath) {
   if (S.galleryIdx < 0) S.galleryIdx = 0;
   S.galleryZoom  = 1;
   document.getElementById('gallery-ov').classList.add('show');
+  // SW: pré-cacheia foto actual + 3 adjacentes (diagrama 2)
+  _swCacheGalleryAdjacent(S.galleryIdx);
   document.getElementById('gallery-dl').onclick = () => {
     const it = S.galleryItems[S.galleryIdx];
     dlF(it.path, it.name);
@@ -3714,6 +4142,12 @@ function openGallery(clickedPath) {
 
 function renderGallery(dir) {
   const it = S.galleryItems[S.galleryIdx]; if (!it) return;
+  // Aborta fetch anterior + limpa interval + limpa EXIF anterior
+  _cancelGallery();
+  clearInterval(_galleryProgInt); _galleryProgInt = null;
+  const _exifBar = document.getElementById('gallery-exif');
+  if (_exifBar) _exifBar.innerHTML = '';
+  clearInterval(_galleryProgInt); _galleryProgInt = null;
   const img = document.getElementById('gallery-img');
   // Animação de slide
   if (dir) {
@@ -3730,14 +4164,15 @@ function renderGallery(dir) {
   loadingEl.style.display = 'flex';
   brokenEl.style.display = 'none';
   progFill.style.width = '20%';
-  // Simulate progress while loading
-  let prog = 20;
-  const progInt = setInterval(() => {
-    prog = Math.min(85, prog + Math.random() * 15);
-    progFill.style.width = prog + '%';
+  // Usar module-level _galleryProgInt — evita acumulação de intervals ao navegar rápido
+  clearInterval(_galleryProgInt);
+  let _prog = 20;
+  _galleryProgInt = setInterval(() => {
+    _prog = Math.min(85, _prog + Math.random() * 15);
+    progFill.style.width = _prog + '%';
   }, 300);
   img.onload = () => {
-    clearInterval(progInt);
+    clearInterval(_galleryProgInt); _galleryProgInt = null;
     progFill.style.width = '100%';
     setTimeout(() => {
       loadingEl.style.display = 'none';
@@ -3745,12 +4180,14 @@ function renderGallery(dir) {
     }, 200);
   };
   img.onerror = () => {
-    clearInterval(progInt);
+    clearInterval(_galleryProgInt); _galleryProgInt = null;
     loadingEl.style.display = 'none';
     brokenEl.style.display = 'flex';
     img.classList.remove('loading-img');
   };
   img.src = ''; authImg(img, dav(it.path), null, _galleryAbortCtrl.signal);
+  // Carrega EXIF em background (Range request 64KB)
+  _loadExif(it);
   document.getElementById('gallery-nm').textContent = it.name;
   document.getElementById('gallery-count').textContent = (S.galleryIdx+1) + ' / ' + S.galleryItems.length;
   // strip thumbnails
@@ -3793,6 +4230,20 @@ function renderGallery(dir) {
 function galleryNav(d) {
   S.galleryIdx = (S.galleryIdx + d + S.galleryItems.length) % S.galleryItems.length;
   renderGallery(d > 0 ? 'left' : 'right');
+  // SW: pré-cacheia 2 atrás + 5 à frente (diagrama 2)
+  _swCacheGalleryAdjacent(S.galleryIdx);
+}
+
+function _swCacheGalleryAdjacent(idx) {
+  if (!navigator.serviceWorker?.controller || !S.galleryItems.length) return;
+  const n = S.galleryItems.length;
+  const urls = [];
+  // 2 atrás + foto actual + 5 à frente
+  for (let i = -2; i <= 5; i++) {
+    const item = S.galleryItems[(idx + i + n) % n];
+    if (item) urls.push(dav(item.path));
+  }
+  navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PHOTOS', urls });
 }
 function galleryGoTo(i) {
   const d = i > S.galleryIdx ? 1 : -1;
@@ -4117,31 +4568,43 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Touch swipe + pinch zoom
-let _gTx = null, _gPd = null;
+let _gTx = null, _gPd = null, _gBaseZoom = 1;
 function setupGalleryTouch() {
   const v = document.getElementById('gallery-viewer');
   v.ontouchstart = e => {
-    if (e.touches.length===1) _gTx = e.touches[0].clientX;
-    if (e.touches.length===2) _gPd = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
+    if (e.touches.length === 1) {
+      _gTx = e.touches[0].clientX;
+    }
+    if (e.touches.length === 2) {
+      // Captura distância INICIAL e zoom BASE — fórmula linear, sem acumulação exponencial
+      _gPd = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      _gBaseZoom = S.galleryZoom; // zoom no momento em que o pinch começa
+    }
   };
   v.ontouchmove = e => {
-    if (e.touches.length===2 && _gPd) {
-      const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-      S.galleryZoom = Math.min(4, Math.max(1, d / _gPd * S.galleryZoom));
+    if (e.touches.length === 2 && _gPd) {
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      // Linear: zoom = baseZoom × (distânciaActual / distânciaInicial)
+      // Sem multiplicar por S.galleryZoom — evita crescimento exponencial
+      S.galleryZoom = Math.min(4, Math.max(1, _gBaseZoom * (d / _gPd)));
       const img = document.getElementById('gallery-img');
       img.style.transform = `scale(${S.galleryZoom})`;
       img.classList.toggle('zoomed', S.galleryZoom > 1.1);
     }
   };
   v.ontouchend = e => {
-    if (_gTx !== null && e.changedTouches.length===1 && S.galleryZoom <= 1) {
+    if (_gTx !== null && e.changedTouches.length === 1 && S.galleryZoom <= 1) {
       const dx = e.changedTouches[0].clientX - _gTx;
       if (Math.abs(dx) > 60) galleryNav(dx < 0 ? 1 : -1);
     }
     _gTx = null; _gPd = null;
+    // _gBaseZoom não reseta — mantém zoom actual como base para próximo pinch
   };
 }
 
@@ -4578,7 +5041,7 @@ async function _loadExistingShares(path) {
           <button class="btn btn-red" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="window.deleteShare('${token}')">🗑️</button>
         </div>`;
       }).join('')}`;
-  } catch(e) {}
+  } catch(e) { Logger.warn('_loadExistingShares', e?.message); }
 }
 
 async function deleteShare(token) {
@@ -4596,7 +5059,7 @@ async function deleteShare(token) {
 
 async function nativeShareLink(url, name) {
   if (navigator.share) {
-    try { await navigator.share({ url, title: name }); } catch(e) {}
+    try { await navigator.share({ url, title: name }); } catch(e) { if (e?.name !== 'AbortError') handleError('share', e, true); }
   } else {
     navigator.clipboard.writeText(url).then(() => toast('Link copiado!', 'ok'));
   }
@@ -4690,13 +5153,14 @@ function renderSearchResults(results, q, local=false) {
     el.innerHTML = `<div class="sr-empty">Nenhum resultado para "${q}"${local?'<br><small>(pesquisa local)</small>':''}</div>`;
     return;
   }
-  el.innerHTML = (local ? `<div style="padding:6px 16px;font-size:11px;color:var(--text2);background:var(--bg2)">⚠️ Pesquisa na pasta atual — DASL não suportado pelo servidor</div>` : '') +
+  const _q = document.getElementById('search-inp')?.value || '';
+  el.innerHTML = (local ? `<div style="padding:6px 16px;font-size:11px;color:var(--text2);background:var(--bg2)">⚠️ A pesquisar no índice local — ${_searchIdx.size} itens indexados</div>` : '') +
     results.map(it => `
       <div class="sr-item" onclick="window.srClick('${esc(it.path)}',${it.isDir},'${esc(it.name)}')">
         <span style="font-size:18px;flex-shrink:0">${it.isDir?'📁':fIcon(it.name)}</span>
         <div style="min-width:0;flex:1">
-          <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}</div>
-          <div class="sr-path">${it.parent || '/'}</div>
+          <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_highlightTerm(it.name, _q)}</div>
+          <div class="sr-path">${hesc(it.parent || '/')}</div>
         </div>
         <span style="font-size:12px;color:var(--text2);flex-shrink:0">${it.size?fmtSz(it.size):''}</span>
       </div>`).join('');
@@ -6047,22 +6511,52 @@ async function checkPendingShares() {
   }
 }
 
-// iOS PWA: ao voltar ao primeiro plano, verifica se a sessão ainda é válida
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && S.user) {
-    // Ping silencioso ao DAV para validar sessão
-    fetch(dav('/'), { method:'PROPFIND', headers:{'Authorization':auth(),'Depth':'0'} })
-      .then(r => {
-        if (r.status === 401) {
-          const saved = localStorage.getItem('fc_cred');
-          if (saved) {
-            try { const d=JSON.parse(saved); S.user=d.user; S.pass=d.pass; } catch(e){}
-          } else { doLogout(); }
+// iOS PWA: ao voltar ao primeiro plano (diagrama 1)
+// Usa _origFetch com 45s timeout — servidor Hetzner frio pode demorar 20-30s
+// NUNCA faz logout por timeout/rede — APENAS por HTTP 401 confirmado
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || !S.user) return;
+
+  // 1. Refresh de credenciais (AES decrypt) + envia auth ao SW
+  await _refreshSession();
+
+  // 2. PROPFIND de validação via _origFetch (sem timeout wrapper de 15s)
+  const ctrl = new AbortController();
+  const visTimer = setTimeout(() => ctrl.abort(), 45000); // 45s para servidor frio
+  try {
+    const r = await _origFetch(dav('/'), {
+      method: 'PROPFIND',
+      headers: { 'Authorization': auth(), 'Depth': '0' },
+      signal: ctrl.signal
+    });
+
+    if (r.status === 401) {
+      // Credenciais inválidas → tenta refresh e retry
+      const refreshed = await _refreshSession();
+      if (refreshed) {
+        const r2 = await _origFetch(dav('/'), {
+          method: 'PROPFIND',
+          headers: { 'Authorization': auth(), 'Depth': '0' }
+        });
+        if (r2.status === 401) {
+          toast('Sessão expirada. Volta a entrar.', 'err');
+          setTimeout(doLogout, 1000);
         }
-      }).catch(() => {}); // offline — não fazer nada
-    // Actualiza barra de quota ao voltar ao primeiro plano
-    loadStorage();
+      } else {
+        toast('Sessão expirada. Volta a entrar.', 'err');
+        setTimeout(doLogout, 1000);
+      }
+    }
+    // 207, 200, timeout, erro de rede → manter sessão, não fazer logout
+  } catch(e) {
+    // AbortError (timeout 45s) ou erro de rede → servidor frio ou offline
+    // NÃO fazer logout — utilizador ainda tem sessão válida
+    Logger.info('visibilitychange: timeout/offline, sessão mantida');
+  } finally {
+    clearTimeout(visTimer);
   }
+
+  loadStorage();
 });
 
 
@@ -6087,6 +6581,9 @@ function _registerFcFunctions(fns) {
 
 Object.assign(globalThis, {
   coalescedFetch, _pendingReqs,
+  handleError, _errMsg,
+  startBackgroundIndex, stopBackgroundIndex,
+  _idbSearch, _idxSearch, _highlightTerm,
   initVirtualScroll, destroyVirtualScroll, _vsRender,
   Store, Logger, UndoStack, Recents,
   initOfflineDetection, batchWebDAV,
@@ -6104,6 +6601,8 @@ Object.assign(globalThis, {
   _idbThumb,
   _galThrottle,
   _galNext,
+  _swCacheGalleryAdjacent,
+  _loadExif, _renderExifBar, _parseExifData,
   showCtxMenu, closeCtx,
   prefetchDir, cancelPrefetch, getPrefetched,
   uploadChunked,

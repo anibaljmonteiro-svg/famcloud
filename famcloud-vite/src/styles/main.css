@@ -146,7 +146,18 @@
 
    BASE STYLES
 ═══════════════════════════════════════ */
-*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+/* touch-action: manipulation apenas em elementos interactivos (não em containers de scroll) */
+button, a, [role="button"], .btn, .t-ic-btn, .fab, .fab-main, .fab-item,
+.bci, .ti, .udrop-item, .fc-chk, .lr-chk, .sort-btn, .vbtn, .tag-chip, .tag-opt,
+.gallery-close, .gallery-prev, .gallery-next, .gallery-btn, .gallery-thumb,
+.slideshow-btn, .pdf-tbtn, .cal-nav, .bnt, .sel-btn, .sel-cancel,
+.note-item, .trash-restore, .ver-restore, .udrop-item, .theme-dot, .theme-card,
+.fab-item, label { touch-action: manipulation; }
+/* Containers de scroll: pan-y para scroll vertical nativo sem delay */
+#fl, .fgrid, .flist, .fc, .main, .tree-wrap, .sidebar,
+.gallery-strip, .search-results, .notes-list, .cal-body,
+.trash-items, .ver-list, .tags-available { touch-action: pan-y; }
 html, body { height:100%; }
 body {
   font-family: var(--font); color: var(--text);
@@ -1205,24 +1216,21 @@ body {
   border-radius: 6px; white-space: nowrap; pointer-events: none;
 }
 
-/* ═══════════════════════════════════════
-   GALERIA — EXIF METADATA BAR
-═══════════════════════════════════════ */
+/* ── GALERIA: BARRA EXIF ───────────────────────────────────────────────────── */
 .gallery-exif {
-  display: flex; align-items: center; gap: 0; flex-wrap: nowrap;
+  display: flex; align-items: center;
   overflow-x: auto; padding: 0 12px;
-  background: rgba(0,0,0,.6); backdrop-filter: blur(8px);
-  min-height: 0; max-height: 36px;
+  background: rgba(0,0,0,.65); backdrop-filter: blur(8px);
   flex-shrink: 0; scrollbar-width: none;
-  transition: max-height .25s ease, padding .25s;
+  max-height: 0; opacity: 0;
+  transition: max-height .25s ease, opacity .25s, padding .25s;
 }
-.gallery-exif:empty { max-height: 0; padding: 0; }
+.gallery-exif:not(:empty) { max-height: 36px; opacity: 1; padding: 0 12px; }
 .gallery-exif::-webkit-scrollbar { display: none; }
 .exif-item {
-  font-size: 11px; color: rgba(255,255,255,.75);
-  white-space: nowrap; padding: 0 10px;
+  font-size: 11px; color: rgba(255,255,255,.8);
+  white-space: nowrap; padding: 0 10px; line-height: 36px;
   border-right: 1px solid rgba(255,255,255,.15);
-  line-height: 36px;
 }
 .exif-item:last-child { border-right: none; }
-.exif-item a { color: rgba(255,255,255,.75); }
+.exif-item a { color: rgba(255,255,255,.8); text-decoration: underline; }
