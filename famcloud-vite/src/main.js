@@ -3439,28 +3439,82 @@ const VS_BUFFER = 5; // 5 linhas extra — menos buracos em scroll rápido
 let _vsState = null; // estado do virtual scroll activo
 
 function initVirtualScroll(items, container) {
-  if (items.length < VS_THRESHOLD) return false; // não vale a pena
+  if (items.length < VS_THRESHOLD) return false;
 
   const isGrid = S.view === 'grid';
-  const itemH = isGrid ? VS_ITEM_H_GRID : VS_ITEM_H_LIST;
-  const cols = isGrid ? VS_COLS_ESTIMATE : 1;
-  const totalRows = Math.ceil(items.length / cols);
-  const totalH = totalRows * itemH;
 
-  // Wrapper com altura total para manter scrollbar correcta
+  // ── COLUNAS REAIS — medir o contentor, não estimar ──────────────────────
+  // CSS usa auto-fill minmax(124px,1fr) em mobile, 148px em desktop
+  // VS_COLS_ESTIMATE=4 estava errado para mobile (3 cols) e desktop (6-9 cols)
+  const containerW = container.clientWidth || document.getElementById('main').clientWidth || 375;
+  const minCardW   = isGrid ? (window.innerWidth <= 700 ? 124 : 148) : 1;
+  const cols       = isGrid ? Math.max(1, Math.floor((containerW - 22) / (minCardW + 9))) : 1;
+  // -22 = padding do .main (11px × 2), +9 = gap da .fgrid
+
+  // Altura estimada para calcular o spacer inicial (será corrigida após render)
+  const itemH = isGrid ? VS_ITEM_H_GRID : VS_ITEM_H_LIST;
+  const totalRows = Math.ceil(items.length / cols);
+  const totalH    = totalRows * itemH;
+
   container.innerHTML = `
     <div id="vs-spacer-top" style="height:0px"></div>
     <div id="vs-content"></div>
     <div id="vs-spacer-bot" style="height:${totalH}px"></div>`;
 
-  _vsState = { items, cols, itemH, totalH, isGrid, container };
+  _vsState = { items, cols, itemH, totalH, isGrid, container, _si: -1, _ei: -1 };
   _vsRender();
 
-  // Listener de scroll no container pai
+  // ── MEDIR ALTURA REAL após primeiro render ──────────────────────────────
+  // Usa rAF para garantir que o browser já calculou o layout
+  requestAnimationFrame(() => {
+    if (!_vsState) return;
+    const content = document.getElementById('vs-content');
+    const firstCard = content?.querySelector('.fc, .lr');
+    if (firstCard) {
+      // Altura real do card + gap
+      const realH   = firstCard.offsetHeight + (isGrid ? 9 : 0); // gap: 9px (grid), 0 (list)
+      const realCols = isGrid
+        ? Math.max(1, Math.round(content.offsetWidth / firstCard.offsetWidth))
+        : 1;
+      if (realH > 10 && realH !== _vsState.itemH) {
+        _vsState.itemH  = realH;
+        _vsState.cols   = realCols;
+        const newTotal  = Math.ceil(items.length / realCols) * realH;
+        _vsState.totalH = newTotal;
+        // Recalcular spacer inferior com dimensões reais
+        const spBot = document.getElementById('vs-spacer-bot');
+        if (spBot) spBot.style.height = newTotal + 'px';
+        // Forçar re-render com medições correctas
+        _vsState._si = -1; _vsState._ei = -1;
+        _vsRender();
+      }
+    }
+  });
+
+  // Listener de scroll
   const main = document.getElementById('main');
   if (main._vsHandler) main.removeEventListener('scroll', main._vsHandler);
   main._vsHandler = _vsThrottle(_vsRender);
   main.addEventListener('scroll', main._vsHandler, { passive: true });
+
+  // Listener de resize — recalcula cols se o utilizador rodar o ecrã
+  if (main._vsResize) window.removeEventListener('resize', main._vsResize);
+  main._vsResize = _vsThrottle(() => {
+    if (!_vsState || !isGrid) return;
+    const content = document.getElementById('vs-content');
+    const firstCard = content?.querySelector('.fc');
+    if (!firstCard) return;
+    const newCols = Math.max(1, Math.round(content.offsetWidth / firstCard.offsetWidth));
+    if (newCols !== _vsState.cols) {
+      _vsState.cols   = newCols;
+      _vsState.totalH = Math.ceil(items.length / newCols) * _vsState.itemH;
+      const spBot = document.getElementById('vs-spacer-bot');
+      if (spBot) spBot.style.height = _vsState.totalH + 'px';
+      _vsState._si = -1; _vsState._ei = -1;
+      _vsRender();
+    }
+  });
+  window.addEventListener('resize', main._vsResize, { passive: true });
 
   return true;
 }
@@ -3524,6 +3578,10 @@ function destroyVirtualScroll() {
   if (main._vsHandler) {
     main.removeEventListener('scroll', main._vsHandler);
     main._vsHandler = null;
+  }
+  if (main._vsResize) {
+    window.removeEventListener('resize', main._vsResize);
+    main._vsResize = null;
   }
 }
 
