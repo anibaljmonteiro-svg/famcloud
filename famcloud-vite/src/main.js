@@ -661,7 +661,81 @@ function setupOffline() {
   window.addEventListener('offline', update);
   update();
 }
-
+// ══════════════════════════════════════════════════════════════
+// WEBAUTHN — LOGIN COM BIOMETRIA (Fingerprint / Face ID)
+// ══════════════════════════════════════════════════════════════
+const BioAuth = {
+  async isSupported() {
+    return !!(window.PublicKeyCredential && 
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable?.());
+  },
+  
+  async register() {
+    if (!await this.isSupported()) {
+      toast('Biometria não suportada neste dispositivo', 'err');
+      return;
+    }
+    
+    try {
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: new Uint8Array(32),
+          rp: { name: 'FamCloud', id: location.hostname },
+          user: {
+            id: new TextEncoder().encode(S.user),
+            name: S.user,
+            displayName: S.user
+          },
+          pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required'
+          },
+          timeout: 60000
+        }
+      });
+      
+      localStorage.setItem('fc_webauthn_cred', JSON.stringify({
+        id: credential.id,
+        rawId: Array.from(new Uint8Array(credential.rawId)),
+        response: {
+          clientDataJSON: Array.from(new Uint8Array(credential.response.clientDataJSON)),
+          attestationObject: Array.from(new Uint8Array(credential.response.attestationObject))
+        }
+      }));
+      
+      toast('✅ Biometria ativada! Próximo login com 1 toque.', 'ok');
+    } catch(e) {
+      Logger.error('WebAuthn register failed', e.message);
+      toast('Erro ao configurar biometria', 'err');
+    }
+  },
+  
+  async login() {
+    const stored = localStorage.getItem('fc_webauthn_cred');
+    if (!stored) return false;
+    
+    try {
+      const cred = JSON.parse(stored);
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge: new Uint8Array(32),
+          allowCredentials: [{
+            id: new Uint8Array(cred.rawId),
+            type: 'public-key'
+          }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      });
+      
+      if (assertion) return true;
+    } catch(e) {
+      Logger.warn('WebAuthn login failed', e.message);
+    }
+    return false;
+  }
+};
 
 // ─── REFRESH DE SESSÃO CENTRALIZADO ─────────────────────────────────────────
 // Fluxo (diagrama 1): visibilitychange → _refreshSession → SET_AUTH → PROPFIND
@@ -3043,7 +3117,110 @@ async function compressImage(file) {
     return file;
   }
 }
-
+// ══════════════════════════════════════════════════════════════
+// AUTO-UPLOAD DA CÂMARA — POLÍTICA INTELIGENTE
+// ══════════════════════════════════════════════════════════════
+const CameraUpload = {
+  enabled: localStorage.getItem('fc_cam_upload') === '1',
+  policy: JSON.parse(localStorage.getItem('fc_cam_policy') || JSON.stringify({
+    onlyOnWiFi: true,
+    onlyWhenCharging: false,
+    excludeScreenshots: true,
+    compressBeforeUpload: true,
+    groupByDate: true
+  })),
+  
+  async init() {
+    if (!this.enabled) return;
+    
+    // Observa mudanças de rede/bateria
+    if (navigator.connection) {
+      navigator.connection.addEventListener('change', () => this.checkQueue());
+    }
+    if (navigator.getBattery) {
+      const battery = await navigator.getBattery();
+      battery.addEventListener('chargingchange', () => this.checkQueue());
+    }
+    
+    // Verifica fila ao arrancar
+    this.checkQueue();
+  },
+  
+  async checkQueue() {
+    if (!this.enabled) return;
+    
+    // Verifica políticas
+    if (this.policy.onlyOnWiFi && navigator.connection?.type !== 'wifi') return;
+    if (this.policy.onlyWhenCharging) {
+      const battery = await navigator.getBattery?.();
+      if (battery && !battery.charging) return;
+    }
+    
+    // Processa fotos da câmara pendentes (IndexedDB 'fc-camera-queue')
+    await this.processPending();
+  },
+  
+  async processPending() {
+    const pending = await _idb.get('/.camera-queue');
+    if (!pending?.items?.length) return;
+    
+    toast(`📤 A carregar ${pending.items.length} foto${pending.items.length>1?'s':''} da câmara...`);
+    
+    for (const item of pending.items) {
+      // Filtra screenshots se policy ativa
+      if (this.policy.excludeScreenshots && item.name.toLowerCase().includes('screenshot')) {
+        continue;
+      }
+      
+      // Comprime se necessário
+      const file = item.file;
+      const toUpload = this.policy.compressBeforeUpload && isImg(file.name) && file.size > 1024*1024
+        ? await compressImage(file)
+        : file;
+      
+      // Upload para pasta configurada
+      const destPath = (this.policy.groupByDate 
+        ? S.path + new Date(item.ts).toISOString().split('T')[0] + '/' 
+        : S.path) + encodeURIComponent(toUpload.name);
+      
+      try {
+        await fetch(dav(destPath), {
+          method: 'PUT',
+          headers: { 'Authorization': auth() },
+          body: toUpload
+        });
+        toast(`✅ ${toUpload.name} carregada`, 'ok');
+      } catch(e) {
+        Logger.warn('Camera upload failed', e.message);
+      }
+    }
+    
+    await _idb.del('/.camera-queue');
+    loadFilesDebounced(S.path);
+  },
+  
+  async addPhoto(file) {
+    const item = {
+      name: file.name,
+      file: file,
+      ts: Date.now(),
+      path: S.path
+    };
+    
+    const existing = await _idb.get('/.camera-queue') || { items: [] };
+    existing.items.push(item);
+    await _idb.set('/.camera-queue', existing);
+    
+    await this.checkQueue();
+    toast('📸 Foto guardada para upload', 'ok');
+  },
+  
+  toggle() {
+    this.enabled = !this.enabled;
+    localStorage.setItem('fc_cam_upload', this.enabled ? '1' : '0');
+    toast(this.enabled ? '✅ Auto-upload ativado' : '⏸ Auto-upload pausado', this.enabled ? 'ok' : '');
+  }
+};
 
 // ─── WEB SHARE API ───────────────────────────────────────────────────────────
 async function webShareFile(p, nm) {
