@@ -44,9 +44,17 @@ self.addEventListener('message', e => {
   if (e.data?.type === 'CLEAR_AUTH') {
     _auth = null;
   }
-  // Pré-cacheia URLs enviados pela app
+  // Pré-cacheia thumbnails (enviado por renderFiles no main.js)
+  if (e.data?.type === 'CACHE_THUMBS' && Array.isArray(e.data.urls)) {
+    cacheUrls(e.data.urls, CACHE_THUMBS, 1000).catch(() => {});
+  }
+  // Pré-cacheia fotos adjacentes na galeria (enviado por galleryNav)
+  if (e.data?.type === 'CACHE_PHOTOS' && Array.isArray(e.data.urls)) {
+    cacheUrls(e.data.urls, CACHE_PHOTOS, 200).catch(() => {});
+  }
+  // Alias legacy
   if (e.data?.type === 'CACHE_URLS' && Array.isArray(e.data.urls)) {
-    cacheUrlList(e.data.urls, e.data.cacheName || CACHE_THUMBS).catch(() => {});
+    cacheUrls(e.data.urls, e.data.cacheName || CACHE_THUMBS, 1000).catch(() => {});
   }
 });
 
@@ -161,7 +169,7 @@ async function staleWhileRevalidate(request, cacheName) {
 }
 
 // ── PRE-CACHE BATCH ──────────────────────────────────────────────────────────
-async function cacheUrlList(urls, cacheName) {
+async function cacheUrls(urls, cacheName) {
   if (!urls.length) return;
   const cache = await caches.open(cacheName);
   
