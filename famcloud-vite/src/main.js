@@ -1324,15 +1324,22 @@ function pageLoaderStart() {
   const el = document.getElementById('page-loader');
   if (!el) return;
   el.className = 'page-loader loading';
-  // Safety: sempre termina após 5s no máximo
   clearTimeout(el._safetyTimer);
-  el._safetyTimer = setTimeout(() => pageLoaderDone(), 5000);
+  el._safetyTimer = setTimeout(() => pageLoaderDone(), 8000);
 }
 function pageLoaderDone() {
   const el = document.getElementById('page-loader');
   if (!el) return;
-  el.className = 'page-loader done';
-  setTimeout(() => { el.className = 'page-loader'; }, 500);
+  // Completa rapidamente até 100% e desaparece
+  el.style.transition = 'transform .15s ease, opacity .3s ease .1s';
+  el.style.transform = 'scaleX(1)';
+  el.style.opacity = '0';
+  setTimeout(() => {
+    el.className = 'page-loader';
+    el.style.transition = '';
+    el.style.transform = '';
+    el.style.opacity = '';
+  }, 450);
 }
 
 
