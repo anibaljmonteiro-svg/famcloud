@@ -323,7 +323,6 @@ body {
 .sel-bar {
   background:var(--gradient); color:#fff; padding:8px 14px;
   display:none; align-items:center; gap:10px; flex-shrink:0;
-  overflow:hidden;
 }
 .sel-bar.show { display:flex; }
 .sel-count { font-size:13px; font-weight:600; flex:1; }
@@ -942,28 +941,27 @@ body {
 ═══════════════════════════════════════ */
 .page-loader {
   position: fixed; top: 0; left: 0; right: 0;
-  height: 2px; z-index: 9999;
+  height: 1px; z-index: 9999;
   background: var(--primary);
   transform-origin: left;
   transform: scaleX(0);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s, transform .1s;
 }
 .page-loader.loading {
-  opacity: 0.6;
-  animation: page-load-progress 1.4s cubic-bezier(.4,0,.2,1) infinite;
+  opacity: 0.45;
+  animation: page-load-progress 1.6s cubic-bezier(.4,0,.2,1) infinite;
 }
 .page-loader.done {
   opacity: 0;
   animation: none;
   transform: scaleX(1);
-  transition: opacity .4s ease, transform 0s;
+  transition: opacity .3s;
 }
 @keyframes page-load-progress {
-  0%   { transform: scaleX(0.03); }
-  60%  { transform: scaleX(0.75); }
-  100% { transform: scaleX(0.92); }
+  0%   { transform: scaleX(0.05); }
+  65%  { transform: scaleX(0.78); }
+  100% { transform: scaleX(0.93); }
 }
 
 /* ═══════════════════════════════════════
