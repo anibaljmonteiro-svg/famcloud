@@ -216,7 +216,8 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 const _IMG_CACHE_MAX = 300; // aumentado: 4 utilizadores com pastas grandes
 const _imgCache = new Map();
 // Concorrência limitada — máx 6 fetches de imagem simultâneos
-const _IMG_CONCURRENCY = 6;      // thumbnails do grid
+// Em mobile: 3 fetches (ligação limitada); desktop: 6 (WiFi/ethernet)
+const _IMG_CONCURRENCY     = window.innerWidth <= 700 ? 3 : 6;
 const _IMG_CONCURRENCY_GAL = 2;  // galeria — fila separada, não bloqueia grid
 
 // Filas independentes: galeria não bloqueia thumbnails do grid
@@ -1838,10 +1839,22 @@ function card(it) {
       inner = `<div class="fic ic-i">🖼️</div>`;
     }
   } else if (isVid(nm)) {
-    // StorageShare não tem ffmpeg → /core/preview para vídeos dá 404 sempre
-    // Ícone imediato — zero fetch, zero erros "indisponível" no grid
+    // Worker v5: /core/preview para vídeos → placeholder SVG se 404
+    // Tentar preview — se o Nextcloud tiver o módulo de vídeo, aparece o frame
+    // Se não tiver, o Worker devolve SVG placeholder sem erros visíveis
     const vidSzLabel = size > 0 ? `<div class="vid-size-badge">${fmtSz(size)}</div>` : '';
-    inner = `<div class="fic ic-v" style="position:relative">🎬${vidSzLabel}</div>`;
+    if (fileid) {
+      const tUrl = thumbUrl(fileid, 128);
+      inner = `<div class="fic ic-v" style="position:relative;overflow:hidden;padding:0">
+        <img class="thumb loading" data-src="${tUrl}" alt=""
+          onload="this.classList.remove('loading');this.classList.add('loaded')"
+          onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:24px">🎬</div>
+        ${vidSzLabel}
+      </div>`;
+    } else {
+      inner = `<div class="fic ic-v" style="position:relative">🎬${vidSzLabel}</div>`;
+    }
     } else {
     inner = `<div class="fic ${iCls(nm)}">${fIcon(nm)}</div>`;
   }
