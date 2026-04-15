@@ -216,8 +216,7 @@ const trashDest = p => NC + '/remote.php/dav/trashbin/' + encodeURIComponent(S.u
 const _IMG_CACHE_MAX = 300; // aumentado: 4 utilizadores com pastas grandes
 const _imgCache = new Map();
 // Concorrência limitada — máx 6 fetches de imagem simultâneos
-// Em mobile: 3 fetches (ligação limitada); desktop: 6 (WiFi/ethernet)
-const _IMG_CONCURRENCY     = window.innerWidth <= 700 ? 3 : 6;
+const _IMG_CONCURRENCY = window.innerWidth <= 700 ? 3 : 6; // 3 mobile / 6 desktop
 const _IMG_CONCURRENCY_GAL = 2;  // galeria — fila separada, não bloqueia grid
 
 // Filas independentes: galeria não bloqueia thumbnails do grid
@@ -453,7 +452,9 @@ async function authImg(el, url, fallbackUrl, externalSignal) {
     const r = await _origFetch(url, { headers: { 'Authorization': auth() }, redirect: 'follow', signal });
     if (r.ok) {
       const blob = await r.blob();
-      if (blob.type.startsWith('image/') && blob.size > 100) {
+      // Rejeitar SVG placeholder do Worker v5 (enviado quando Nextcloud preview falha)
+      const isPlaceholder = blob.type === 'image/svg+xml' && url.includes('/preview');
+      if (!isPlaceholder && blob.type.startsWith('image/') && blob.size > 100) {
         const objUrl = URL.createObjectURL(blob);
         _imgCache.set(cacheKey, objUrl);
         _imgCacheCleanup();
@@ -1839,17 +1840,15 @@ function card(it) {
       inner = `<div class="fic ic-i">🖼️</div>`;
     }
   } else if (isVid(nm)) {
-    // Worker v5: /core/preview para vídeos → placeholder SVG se 404
-    // Tentar preview — se o Nextcloud tiver o módulo de vídeo, aparece o frame
-    // Se não tiver, o Worker devolve SVG placeholder sem erros visíveis
     const vidSzLabel = size > 0 ? `<div class="vid-size-badge">${fmtSz(size)}</div>` : '';
     if (fileid) {
+      // Tenta preview do Nextcloud — Worker v5 faz fallback SVG se 404
+      // authImg agora rejeita SVG placeholder → mostra ícone nativo
       const tUrl = thumbUrl(fileid, 128);
       inner = `<div class="fic ic-v" style="position:relative;overflow:hidden;padding:0">
         <img class="thumb loading" data-src="${tUrl}" alt=""
           onload="this.classList.remove('loading');this.classList.add('loaded')"
-          onerror="this.style.display='none';this.nextSibling.style.display='flex'">
-        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:24px">🎬</div>
+          onerror="this.outerHTML='<div class=\'fic ic-v\' style=\'position:relative\'>🎬${vidSzLabel}</div>'">
         ${vidSzLabel}
       </div>`;
     } else {
